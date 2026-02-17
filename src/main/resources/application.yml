@@ -36,6 +36,12 @@ spring:
       write-dates-as-timestamps: false
     default-property-inclusion: non_null
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
 server:
   port: ${SERVER_PORT:8080}
   error:
@@ -51,6 +57,15 @@ app:
   paystack:
     secret-key: ${PAYSTACK_SECRET_KEY:sk_test_xxxxx}
     base-url: https://api.paystack.co
+
+  rateLimit:
+    enabled: true
+    public-rate:
+      requests-per-minute: 60
+    auth:
+      requests-per-minute: 120
+    login:
+      requests-per-minute: 10
 
 springdoc:
   api-docs:

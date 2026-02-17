@@ -5,7 +5,7 @@ import org.springframework.http.HttpStatus;
 public class InsufficientFundsException extends BusinessException {
 
     public InsufficientFundsException(String message) {
-        super(message, HttpStatus.UNPROCESSABLE_ENTITY);
+        super(message, HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.INSUFFICIENT_FUNDS);
     }
 
     public InsufficientFundsException() {

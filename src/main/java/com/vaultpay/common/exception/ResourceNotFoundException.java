@@ -5,10 +5,10 @@ import org.springframework.http.HttpStatus;
 public class ResourceNotFoundException extends BusinessException {
 
     public ResourceNotFoundException(String resource, Object identifier) {
-        super(resource + " not found with identifier: " + identifier, HttpStatus.NOT_FOUND);
+        super(resource + " not found with identifier: " + identifier, HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND);
     }
 
     public ResourceNotFoundException(String message) {
-        super(message, HttpStatus.NOT_FOUND);
+        super(message, HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND);
     }
 }

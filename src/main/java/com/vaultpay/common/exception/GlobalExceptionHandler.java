@@ -1,8 +1,11 @@
 package com.vaultpay.common.exception;
 
 import com.vaultpay.common.dto.ApiResponse;
+import com.vaultpay.common.logging.MdcKeys;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -19,35 +22,51 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException ex) {
-        log.warn("Business exception: {}", ex.getMessage());
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException ex, HttpServletRequest request) {
+        log.warn("Business exception: {} (code={})", ex.getMessage(), ex.getErrorCode());
         return ResponseEntity
                 .status(ex.getStatus())
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.<Void>builder()
+                        .success(false)
+                        .message(ex.getMessage())
+                        .errorCode(ex.getErrorCode().name())
+                        .path(request.getRequestURI())
+                        .requestId(MDC.get(MdcKeys.REQUEST_ID))
+                        .build());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationException(
-            MethodArgumentNotValidException ex) {
-        Map<String, String> errors = new HashMap<>();
+            MethodArgumentNotValidException ex, HttpServletRequest request) {
+        Map<String, String> fieldErrors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
             String errorMessage = error.getDefaultMessage();
-            errors.put(fieldName, errorMessage);
+            fieldErrors.put(fieldName, errorMessage);
         });
         ApiResponse<Map<String, String>> response = ApiResponse.<Map<String, String>>builder()
                 .success(false)
                 .message("Validation failed")
-                .data(errors)
+                .errorCode(ErrorCode.VALIDATION_ERROR.name())
+                .data(fieldErrors)
+                .details(Map.of("fields", fieldErrors))
+                .path(request.getRequestURI())
+                .requestId(MDC.get(MdcKeys.REQUEST_ID))
                 .build();
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex) {
+    public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex, HttpServletRequest request) {
         log.error("Unexpected error: ", ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("An unexpected error occurred"));
+                .body(ApiResponse.<Void>builder()
+                        .success(false)
+                        .message("An unexpected error occurred")
+                        .errorCode(ErrorCode.INTERNAL_ERROR.name())
+                        .path(request.getRequestURI())
+                        .requestId(MDC.get(MdcKeys.REQUEST_ID))
+                        .build());
     }
 }
