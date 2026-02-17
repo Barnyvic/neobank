@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    com.vaultpay: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN

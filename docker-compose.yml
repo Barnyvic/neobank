@@ -1,0 +1,38 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vaultpay-db
+    environment:
+      POSTGRES_DB: vaultpay
+      POSTGRES_USER: vaultpay
+      POSTGRES_PASSWORD: vaultpay
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaultpay"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: vaultpay-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_URL: jdbc:postgresql://postgres:5432/vaultpay
+      DB_USERNAME: vaultpay
+      DB_PASSWORD: vaultpay
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-sk_test_xxxxx}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
