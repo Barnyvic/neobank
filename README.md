@@ -45,6 +45,10 @@ mvn clean install
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
+## Architecture
+
+For module boundaries, communication flows, resilience, and scalability, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Project Structure
 
 ```
