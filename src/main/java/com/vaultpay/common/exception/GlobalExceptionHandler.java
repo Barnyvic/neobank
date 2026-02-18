@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -30,6 +31,21 @@ public class GlobalExceptionHandler {
                         .success(false)
                         .message(ex.getMessage())
                         .errorCode(ex.getErrorCode().name())
+                        .path(request.getRequestURI())
+                        .requestId(MDC.get(MdcKeys.REQUEST_ID))
+                        .build());
+    }
+
+    @ExceptionHandler(UsernameNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUsernameNotFoundException(
+            UsernameNotFoundException ex, HttpServletRequest request) {
+        log.warn("Authentication failed: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.<Void>builder()
+                        .success(false)
+                        .message("Invalid credentials")
+                        .errorCode(ErrorCode.UNAUTHORIZED.name())
                         .path(request.getRequestURI())
                         .requestId(MDC.get(MdcKeys.REQUEST_ID))
                         .build());
