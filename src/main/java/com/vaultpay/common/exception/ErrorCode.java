@@ -7,6 +7,8 @@ public enum ErrorCode {
     UNAUTHORIZED,
     INSUFFICIENT_FUNDS,
     RATE_LIMITED,
+    ACCOUNT_LOCKED,
+    PIN_LOCKED,
     BAD_REQUEST,
     INTERNAL_ERROR
 }

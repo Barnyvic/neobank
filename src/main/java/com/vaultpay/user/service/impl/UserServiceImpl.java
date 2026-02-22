@@ -2,6 +2,7 @@ package com.vaultpay.user.service.impl;
 
 import com.vaultpay.common.exception.BusinessException;
 import com.vaultpay.common.exception.DuplicateResourceException;
+import com.vaultpay.common.exception.ErrorCode;
 import com.vaultpay.common.exception.ResourceNotFoundException;
 import com.vaultpay.user.dto.request.SetTransactionPinRequest;
 import com.vaultpay.user.dto.request.UpdateProfileRequest;
@@ -9,8 +10,10 @@ import com.vaultpay.user.dto.response.UserResponse;
 import com.vaultpay.user.entity.User;
 import com.vaultpay.user.mapper.UserMapper;
 import com.vaultpay.user.repository.UserRepository;
+import com.vaultpay.user.service.PinAttemptService;
 import com.vaultpay.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +23,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PinAttemptService pinAttemptService;
 
     @Override
     public UserResponse getUserById(Long userId) {
@@ -74,11 +78,25 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public boolean verifyTransactionPin(Long userId, String pin) {
+        if (pinAttemptService.isLocked(userId)) {
+            throw new BusinessException(
+                    "Transaction PIN is temporarily locked due to too many failed attempts. Please try again later.",
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    ErrorCode.PIN_LOCKED);
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
         if (user.getTransactionPin() == null || user.getTransactionPin().isBlank()) {
             return false;
         }
-        return passwordEncoder.matches(pin, user.getTransactionPin());
+
+        boolean matches = passwordEncoder.matches(pin, user.getTransactionPin());
+        if (matches) {
+            pinAttemptService.recordSuccess(userId);
+        } else {
+            pinAttemptService.recordFailure(userId);
+        }
+        return matches;
     }
 }

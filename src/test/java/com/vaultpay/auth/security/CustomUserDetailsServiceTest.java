@@ -1,10 +1,14 @@
 package com.vaultpay.auth.security;
 
+import com.vaultpay.auth.entity.Role;
+import com.vaultpay.auth.entity.UserRole;
+import com.vaultpay.auth.repository.UserRoleRepository;
 import com.vaultpay.user.entity.User;
 import com.vaultpay.user.enums.KycLevel;
 import com.vaultpay.user.enums.UserStatus;
 import com.vaultpay.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -13,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,62 +33,119 @@ class CustomUserDetailsServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private UserRoleRepository userRoleRepository;
+
     @InjectMocks
     private CustomUserDetailsService userDetailsService;
 
-    @Test
-    @DisplayName("should load UserDetails when user exists by email")
-    void shouldLoadUserDetailsWhenUserExists() {
-        User user = User.builder()
+    private User buildUser(UserStatus status) {
+        return User.builder()
                 .id(1L)
                 .email(EMAIL)
                 .passwordHash("hash")
                 .firstName("John")
                 .lastName("Doe")
                 .phoneNumber("+2348012345678")
-                .status(UserStatus.ACTIVE)
+                .status(status)
                 .kycLevel(KycLevel.TIER_1)
                 .build();
-        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
-
-        UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
-
-        assertThat(details).isInstanceOf(UserPrincipal.class);
-        assertThat(details.getUsername()).isEqualTo(EMAIL);
-        assertThat(details.getPassword()).isEqualTo("hash");
-        assertThat(details.getAuthorities()).hasSize(1);
-        assertThat(details.getAuthorities().iterator().next().getAuthority()).isEqualTo("ROLE_USER");
-        assertThat(details.isEnabled()).isTrue();
     }
 
-    @Test
-    @DisplayName("should throw UsernameNotFoundException when user not found")
-    void shouldThrowWhenUserNotFound() {
-        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
+    @Nested
+    @DisplayName("loadUserByUsername")
+    class LoadUserByUsername {
 
-        assertThatThrownBy(() -> userDetailsService.loadUserByUsername(EMAIL))
-                .isInstanceOf(UsernameNotFoundException.class)
-                .hasMessageContaining("User not found")
-                .hasMessageContaining(EMAIL);
-    }
+        @Test
+        @DisplayName("should fall back to ROLE_USER when user has no roles assigned")
+        void shouldFallBackToRoleUserWhenNoRolesAssigned() {
+            User user = buildUser(UserStatus.ACTIVE);
+            when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
+            when(userRoleRepository.findByUserIdWithRole(1L)).thenReturn(List.of());
 
-    @Test
-    @DisplayName("should set enabled false when user status is not ACTIVE")
-    void shouldSetEnabledFalseWhenUserSuspended() {
-        User user = User.builder()
-                .id(1L)
-                .email(EMAIL)
-                .passwordHash("hash")
-                .firstName("John")
-                .lastName("Doe")
-                .phoneNumber("+2348012345678")
-                .status(UserStatus.SUSPENDED)
-                .kycLevel(KycLevel.TIER_1)
-                .build();
-        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
+            UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
 
-        UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
+            assertThat(details).isInstanceOf(UserPrincipal.class);
+            assertThat(details.getUsername()).isEqualTo(EMAIL);
+            assertThat(details.getPassword()).isEqualTo("hash");
+            assertThat(details.getAuthorities()).hasSize(1);
+            assertThat(details.getAuthorities().iterator().next().getAuthority()).isEqualTo("ROLE_USER");
+            assertThat(details.isEnabled()).isTrue();
+        }
 
-        assertThat(details.isEnabled()).isFalse();
+        @Test
+        @DisplayName("should load authorities from assigned database roles")
+        void shouldLoadAuthoritiesFromDatabaseRoles() {
+            User user = buildUser(UserStatus.ACTIVE);
+            Role adminRole = Role.builder().id(1L).name("ROLE_ADMIN").build();
+            UserRole userRole = UserRole.builder().id(1L).user(user).role(adminRole).build();
+
+            when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
+            when(userRoleRepository.findByUserIdWithRole(1L)).thenReturn(List.of(userRole));
+
+            UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
+
+            assertThat(details.getAuthorities()).hasSize(1);
+            assertThat(details.getAuthorities().iterator().next().getAuthority()).isEqualTo("ROLE_ADMIN");
+        }
+
+        @Test
+        @DisplayName("should throw UsernameNotFoundException when user not found")
+        void shouldThrowWhenUserNotFound() {
+            when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userDetailsService.loadUserByUsername(EMAIL))
+                    .isInstanceOf(UsernameNotFoundException.class)
+                    .hasMessageContaining("User not found")
+                    .hasMessageContaining(EMAIL);
+        }
+
+        @Test
+        @DisplayName("should return isEnabled false for SUSPENDED user")
+        void shouldReturnEnabledFalseForSuspendedUser() {
+            User user = buildUser(UserStatus.SUSPENDED);
+            when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
+            when(userRoleRepository.findByUserIdWithRole(1L)).thenReturn(List.of());
+
+            UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
+
+            assertThat(details.isEnabled()).isFalse();
+        }
+
+        @Test
+        @DisplayName("should return isAccountNonLocked false for SUSPENDED user")
+        void shouldReturnAccountLockedForSuspendedUser() {
+            User user = buildUser(UserStatus.SUSPENDED);
+            when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
+            when(userRoleRepository.findByUserIdWithRole(1L)).thenReturn(List.of());
+
+            UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
+
+            assertThat(details.isAccountNonLocked()).isFalse();
+        }
+
+        @Test
+        @DisplayName("should return isAccountNonLocked false for CLOSED user")
+        void shouldReturnAccountLockedForClosedUser() {
+            User user = buildUser(UserStatus.CLOSED);
+            when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
+            when(userRoleRepository.findByUserIdWithRole(1L)).thenReturn(List.of());
+
+            UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
+
+            assertThat(details.isAccountNonLocked()).isFalse();
+        }
+
+        @Test
+        @DisplayName("should return isAccountNonLocked true for ACTIVE user")
+        void shouldReturnAccountNonLockedForActiveUser() {
+            User user = buildUser(UserStatus.ACTIVE);
+            when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(user));
+            when(userRoleRepository.findByUserIdWithRole(1L)).thenReturn(List.of());
+
+            UserDetails details = userDetailsService.loadUserByUsername(EMAIL);
+
+            assertThat(details.isAccountNonLocked()).isTrue();
+        }
     }
 }

@@ -4,7 +4,6 @@ import com.vaultpay.user.entity.User;
 import com.vaultpay.user.enums.UserStatus;
 import lombok.Getter;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
@@ -13,13 +12,12 @@ import java.util.List;
 @Getter
 public class UserPrincipal implements UserDetails {
 
-    private static final List<GrantedAuthority> DEFAULT_AUTHORITIES =
-            List.of(new SimpleGrantedAuthority("ROLE_USER"));
-
     private final User user;
+    private final Collection<? extends GrantedAuthority> authorities;
 
-    public UserPrincipal(User user) {
+    public UserPrincipal(User user, Collection<? extends GrantedAuthority> authorities) {
         this.user = user;
+        this.authorities = List.copyOf(authorities);
     }
 
     @Override
@@ -34,7 +32,7 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return DEFAULT_AUTHORITIES;
+        return authorities;
     }
 
     @Override
@@ -44,7 +42,9 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true;
+        return user.getStatus() != null
+                && user.getStatus() != UserStatus.SUSPENDED
+                && user.getStatus() != UserStatus.CLOSED;
     }
 
     @Override

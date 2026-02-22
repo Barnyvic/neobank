@@ -2,6 +2,7 @@ package com.vaultpay.user.service;
 
 import com.vaultpay.common.exception.BusinessException;
 import com.vaultpay.common.exception.DuplicateResourceException;
+import com.vaultpay.common.exception.ErrorCode;
 import com.vaultpay.common.exception.ResourceNotFoundException;
 import com.vaultpay.user.dto.request.SetTransactionPinRequest;
 import com.vaultpay.user.dto.request.UpdateProfileRequest;
@@ -10,6 +11,7 @@ import com.vaultpay.user.entity.User;
 import com.vaultpay.user.enums.KycLevel;
 import com.vaultpay.user.enums.UserStatus;
 import com.vaultpay.user.repository.UserRepository;
+import com.vaultpay.user.service.PinAttemptService;
 import com.vaultpay.user.service.impl.UserServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
@@ -47,6 +50,9 @@ class UserServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private PinAttemptService pinAttemptService;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -251,29 +257,35 @@ class UserServiceTest {
     class VerifyTransactionPin {
 
         @Test
-        @DisplayName("should return true when pin matches")
+        @DisplayName("should return true and reset attempt counter when pin matches")
         void shouldReturnTrueWhenMatch() {
             User user = defaultUser();
             user.setTransactionPin("encoded-pin");
+            when(pinAttemptService.isLocked(USER_ID)).thenReturn(false);
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("1234", "encoded-pin")).thenReturn(true);
 
             boolean result = userService.verifyTransactionPin(USER_ID, "1234");
 
             assertThat(result).isTrue();
+            verify(pinAttemptService).recordSuccess(USER_ID);
+            verify(pinAttemptService, never()).recordFailure(any());
         }
 
         @Test
-        @DisplayName("should return false when pin does not match")
+        @DisplayName("should return false and record failure when pin does not match")
         void shouldReturnFalseWhenNoMatch() {
             User user = defaultUser();
             user.setTransactionPin("encoded-pin");
+            when(pinAttemptService.isLocked(USER_ID)).thenReturn(false);
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("wrong", "encoded-pin")).thenReturn(false);
 
             boolean result = userService.verifyTransactionPin(USER_ID, "wrong");
 
             assertThat(result).isFalse();
+            verify(pinAttemptService).recordFailure(USER_ID);
+            verify(pinAttemptService, never()).recordSuccess(any());
         }
 
         @Test
@@ -281,6 +293,7 @@ class UserServiceTest {
         void shouldReturnFalseWhenNoPinSet() {
             User user = defaultUser();
             user.setTransactionPin(null);
+            when(pinAttemptService.isLocked(USER_ID)).thenReturn(false);
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
 
             boolean result = userService.verifyTransactionPin(USER_ID, "1234");
@@ -290,8 +303,24 @@ class UserServiceTest {
         }
 
         @Test
+        @DisplayName("should throw BusinessException with PIN_LOCKED when PIN is locked")
+        void shouldThrowWhenPinLocked() {
+            when(pinAttemptService.isLocked(USER_ID)).thenReturn(true);
+
+            assertThatThrownBy(() -> userService.verifyTransactionPin(USER_ID, "1234"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(ex -> {
+                        BusinessException bex = (BusinessException) ex;
+                        assertThat(bex.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                        assertThat(bex.getErrorCode()).isEqualTo(ErrorCode.PIN_LOCKED);
+                    });
+            verify(userRepository, never()).findById(any());
+        }
+
+        @Test
         @DisplayName("should throw ResourceNotFoundException when user not found")
         void shouldThrowWhenUserNotFound() {
+            when(pinAttemptService.isLocked(USER_ID)).thenReturn(false);
             when(userRepository.findById(USER_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> userService.verifyTransactionPin(USER_ID, "1234"))

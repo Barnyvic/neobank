@@ -12,6 +12,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -62,6 +64,36 @@ public class GlobalExceptionHandler {
                         .success(false)
                         .message("Invalid credentials")
                         .errorCode(ErrorCode.UNAUTHORIZED.name())
+                        .path(request.getRequestURI())
+                        .requestId(MDC.get(MdcKeys.REQUEST_ID))
+                        .build());
+    }
+
+    @ExceptionHandler(DisabledException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDisabledException(
+            DisabledException ex, HttpServletRequest request) {
+        log.warn("Login attempt on disabled account: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.<Void>builder()
+                        .success(false)
+                        .message("Account is disabled. Please contact support.")
+                        .errorCode(ErrorCode.UNAUTHORIZED.name())
+                        .path(request.getRequestURI())
+                        .requestId(MDC.get(MdcKeys.REQUEST_ID))
+                        .build());
+    }
+
+    @ExceptionHandler(LockedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleLockedException(
+            LockedException ex, HttpServletRequest request) {
+        log.warn("Login attempt on locked account: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.<Void>builder()
+                        .success(false)
+                        .message("Account is suspended. Please contact support.")
+                        .errorCode(ErrorCode.ACCOUNT_LOCKED.name())
                         .path(request.getRequestURI())
                         .requestId(MDC.get(MdcKeys.REQUEST_ID))
                         .build());

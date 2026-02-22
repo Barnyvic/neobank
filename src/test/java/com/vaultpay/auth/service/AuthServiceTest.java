@@ -5,7 +5,9 @@ import com.vaultpay.auth.dto.request.RegisterRequest;
 import com.vaultpay.auth.dto.response.AuthResponse;
 import com.vaultpay.auth.security.UserPrincipal;
 import com.vaultpay.auth.service.impl.AuthServiceImpl;
+import com.vaultpay.common.exception.BusinessException;
 import com.vaultpay.common.exception.DuplicateResourceException;
+import com.vaultpay.common.exception.ErrorCode;
 import com.vaultpay.common.exception.UnauthorizedException;
 import com.vaultpay.user.entity.User;
 import com.vaultpay.user.enums.KycLevel;
@@ -20,18 +22,21 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,6 +68,9 @@ class AuthServiceTest {
 
     @Mock
     private RefreshTokenStore refreshTokenStore;
+
+    @Mock
+    private LoginAttemptService loginAttemptService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -168,14 +176,19 @@ class AuthServiceTest {
     @DisplayName("login")
     class Login {
 
+        private UserPrincipal principal() {
+            User user = User.builder().id(USER_ID).email(EMAIL).passwordHash("hashed").build();
+            return new UserPrincipal(user, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+        }
+
         @Test
         @DisplayName("should return tokens when credentials are valid")
         void shouldReturnTokensWhenValid() {
             LoginRequest request = new LoginRequest(EMAIL, PASSWORD);
-            User user = User.builder().id(USER_ID).email(EMAIL).passwordHash("hashed").build();
-            UserPrincipal principal = new UserPrincipal(user);
+            UserPrincipal principal = principal();
             Authentication auth = new UsernamePasswordAuthenticationToken(
                     principal, null, principal.getAuthorities());
+            when(loginAttemptService.isLocked(EMAIL)).thenReturn(false);
             when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                     .thenReturn(auth);
             when(jwtService.generateAccessToken(principal)).thenReturn(ACCESS_TOKEN);
@@ -186,16 +199,17 @@ class AuthServiceTest {
             assertThat(response.getAccessToken()).isEqualTo(ACCESS_TOKEN);
             assertThat(response.getRefreshToken()).isEqualTo(REFRESH_TOKEN);
             assertThat(response.getTokenType()).isEqualTo("Bearer");
+            verify(loginAttemptService).recordSuccess(EMAIL);
         }
 
         @Test
         @DisplayName("should pass normalised email to authentication manager")
         void shouldPassNormalisedEmail() {
             LoginRequest request = new LoginRequest("  User@Example.COM  ", PASSWORD);
-            User user = User.builder().id(USER_ID).email(EMAIL).passwordHash("hashed").build();
-            UserPrincipal principal = new UserPrincipal(user);
+            UserPrincipal principal = principal();
             Authentication auth = new UsernamePasswordAuthenticationToken(
                     principal, null, principal.getAuthorities());
+            when(loginAttemptService.isLocked(EMAIL)).thenReturn(false);
             when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                     .thenReturn(auth);
             when(jwtService.generateAccessToken(any())).thenReturn(ACCESS_TOKEN);
@@ -207,6 +221,36 @@ class AuthServiceTest {
                     ArgumentCaptor.forClass(UsernamePasswordAuthenticationToken.class);
             verify(authenticationManager).authenticate(captor.capture());
             assertThat(captor.getValue().getName()).isEqualTo("user@example.com");
+        }
+
+        @Test
+        @DisplayName("should throw ACCOUNT_LOCKED when account is locked")
+        void shouldThrowWhenAccountLocked() {
+            LoginRequest request = new LoginRequest(EMAIL, PASSWORD);
+            when(loginAttemptService.isLocked(EMAIL)).thenReturn(true);
+
+            assertThatThrownBy(() -> authService.login(request))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(ex -> {
+                        BusinessException bex = (BusinessException) ex;
+                        assertThat(bex.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                        assertThat(bex.getErrorCode()).isEqualTo(ErrorCode.ACCOUNT_LOCKED);
+                    });
+            verify(authenticationManager, never()).authenticate(any());
+        }
+
+        @Test
+        @DisplayName("should record failure and re-throw on bad credentials")
+        void shouldRecordFailureOnBadCredentials() {
+            LoginRequest request = new LoginRequest(EMAIL, PASSWORD);
+            when(loginAttemptService.isLocked(EMAIL)).thenReturn(false);
+            when(authenticationManager.authenticate(any()))
+                    .thenThrow(new BadCredentialsException("Bad credentials"));
+
+            assertThatThrownBy(() -> authService.login(request))
+                    .isInstanceOf(BadCredentialsException.class);
+            verify(loginAttemptService).recordFailure(EMAIL);
+            verify(loginAttemptService, never()).recordSuccess(any());
         }
     }
 

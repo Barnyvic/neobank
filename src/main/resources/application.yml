@@ -67,6 +67,14 @@ app:
     login:
       requests-per-minute: 10
 
+  security:
+    login:
+      max-attempts: 5
+      lockout-minutes: 15
+    pin:
+      max-attempts: 5
+      lockout-minutes: 30
+
 springdoc:
   api-docs:
     path: /api-docs
