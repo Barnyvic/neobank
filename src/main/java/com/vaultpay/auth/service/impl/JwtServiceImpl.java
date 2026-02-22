@@ -2,7 +2,6 @@ package com.vaultpay.auth.service.impl;
 
 import com.vaultpay.auth.service.JwtService;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -13,9 +12,13 @@ import org.springframework.stereotype.Service;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
 
 @Service
 public class JwtServiceImpl implements JwtService {
+
+    private static final String CLAIM_TYPE = "type";
+    private static final String TOKEN_TYPE_ACCESS = "access";
 
     private final SecretKey signingKey;
     private final long accessTokenExpirationMs;
@@ -37,6 +40,8 @@ public class JwtServiceImpl implements JwtService {
         Date expiry = new Date(now.getTime() + accessTokenExpirationMs);
         return Jwts.builder()
                 .subject(userDetails.getUsername())
+                .id(UUID.randomUUID().toString())
+                .claim(CLAIM_TYPE, TOKEN_TYPE_ACCESS)
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(signingKey)
@@ -46,24 +51,51 @@ public class JwtServiceImpl implements JwtService {
     @Override
     public String extractUsername(String token) {
         try {
-            Claims claims = Jwts.parser()
-                    .verifyWith(signingKey)
-                    .build()
-                    .parseSignedClaims(token)
-                    .getPayload();
-            return claims.getSubject();
-        } catch (ExpiredJwtException | JwtException | IllegalArgumentException e) {
+            return extractClaims(token).getSubject();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @Override
+    public String extractJti(String token) {
+        try {
+            return extractClaims(token).getId();
+        } catch (Exception e) {
             return null;
         }
     }
 
     @Override
     public boolean isTokenValid(String token, UserDetails userDetails) {
-        String username = extractUsername(token);
-        return username != null && username.equals(userDetails.getUsername());
+        try {
+            Claims claims = extractClaims(token);
+            String username = claims.getSubject();
+            String tokenType = claims.get(CLAIM_TYPE, String.class);
+            return username != null
+                    && username.equals(userDetails.getUsername())
+                    && TOKEN_TYPE_ACCESS.equals(tokenType);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
-    public long getAccessTokenExpirationSeconds() {
-        return accessTokenExpirationMs / 1000;
+    @Override
+    public long getRemainingValiditySeconds(String token) {
+        try {
+            Date expiration = extractClaims(token).getExpiration();
+            long remaining = expiration.getTime() - System.currentTimeMillis();
+            return Math.max(0, remaining / 1000);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private Claims extractClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(signingKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 }

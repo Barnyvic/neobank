@@ -6,6 +6,7 @@ import com.vaultpay.auth.dto.response.AuthResponse;
 import com.vaultpay.auth.security.UserPrincipal;
 import com.vaultpay.auth.service.impl.AuthServiceImpl;
 import com.vaultpay.common.exception.BusinessException;
+import com.vaultpay.auth.service.TokenBlacklistService;
 import com.vaultpay.common.exception.DuplicateResourceException;
 import com.vaultpay.common.exception.ErrorCode;
 import com.vaultpay.common.exception.UnauthorizedException;
@@ -71,6 +72,9 @@ class AuthServiceTest {
 
     @Mock
     private LoginAttemptService loginAttemptService;
+
+    @Mock
+    private TokenBlacklistService tokenBlacklistService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -302,10 +306,36 @@ class AuthServiceTest {
     class Logout {
 
         @Test
-        @DisplayName("should revoke refresh token")
-        void shouldRevokeRefreshToken() {
-            authService.logout(REFRESH_TOKEN);
+        @DisplayName("should blacklist access token and revoke refresh token")
+        void shouldBlacklistAccessAndRevokeRefresh() {
+            String jti = "test-jti-uuid";
+            when(jwtService.extractJti(ACCESS_TOKEN)).thenReturn(jti);
+            when(jwtService.getRemainingValiditySeconds(ACCESS_TOKEN)).thenReturn(500L);
+
+            authService.logout(ACCESS_TOKEN, REFRESH_TOKEN);
+
+            verify(tokenBlacklistService).blacklist(jti, 500L);
             verify(refreshTokenStore).revoke(REFRESH_TOKEN);
+        }
+
+        @Test
+        @DisplayName("should only revoke refresh token when access token is null")
+        void shouldOnlyRevokeRefreshWhenAccessTokenNull() {
+            authService.logout(null, REFRESH_TOKEN);
+
+            verify(refreshTokenStore).revoke(REFRESH_TOKEN);
+            verify(tokenBlacklistService, never()).blacklist(any(), any(Long.class));
+        }
+
+        @Test
+        @DisplayName("should only revoke refresh token when jti cannot be extracted")
+        void shouldOnlyRevokeRefreshWhenJtiNull() {
+            when(jwtService.extractJti(ACCESS_TOKEN)).thenReturn(null);
+
+            authService.logout(ACCESS_TOKEN, REFRESH_TOKEN);
+
+            verify(refreshTokenStore).revoke(REFRESH_TOKEN);
+            verify(tokenBlacklistService, never()).blacklist(any(), any(Long.class));
         }
     }
 }

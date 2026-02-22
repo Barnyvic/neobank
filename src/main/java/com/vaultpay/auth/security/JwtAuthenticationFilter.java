@@ -1,6 +1,7 @@
 package com.vaultpay.auth.security;
 
 import com.vaultpay.auth.service.JwtService;
+import com.vaultpay.auth.service.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,6 +30,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Override
     protected void doFilterInternal(
@@ -38,6 +40,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String token = extractTokenFromRequest(request);
             if (StringUtils.hasText(token)) {
+                String jti = jwtService.extractJti(token);
+                if (jti != null && tokenBlacklistService.isBlacklisted(jti)) {
+                    log.warn("Blacklisted token used for [{} {}]",
+                            request.getMethod(), request.getRequestURI());
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 String username = jwtService.extractUsername(token);
                 if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                     UserDetails userDetails = userDetailsService.loadUserByUsername(username);

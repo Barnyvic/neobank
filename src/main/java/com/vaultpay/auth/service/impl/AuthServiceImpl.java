@@ -9,6 +9,7 @@ import com.vaultpay.auth.service.AuthService;
 import com.vaultpay.auth.service.JwtService;
 import com.vaultpay.auth.service.LoginAttemptService;
 import com.vaultpay.auth.service.RefreshTokenStore;
+import com.vaultpay.auth.service.TokenBlacklistService;
 import com.vaultpay.common.exception.BusinessException;
 import com.vaultpay.common.exception.DuplicateResourceException;
 import com.vaultpay.common.exception.ErrorCode;
@@ -41,6 +42,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final RefreshTokenStore refreshTokenStore;
     private final LoginAttemptService loginAttemptService;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Value("${app.jwt.access-token-expiration-ms:900000}")
     private long accessTokenExpirationMs;
@@ -127,7 +129,14 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public void logout(String refreshToken) {
+    public void logout(String accessToken, String refreshToken) {
+        if (accessToken != null) {
+            String jti = jwtService.extractJti(accessToken);
+            if (jti != null) {
+                long remaining = jwtService.getRemainingValiditySeconds(accessToken);
+                tokenBlacklistService.blacklist(jti, remaining);
+            }
+        }
         refreshTokenStore.revoke(refreshToken);
     }
 }

@@ -194,18 +194,32 @@ class AuthControllerTest {
     class Logout {
 
         @Test
-        @DisplayName("should return 200 when logout succeeds")
+        @DisplayName("should return 200 and pass access token from header to service")
         void shouldReturn200WhenLogoutSucceeds() throws Exception {
             RefreshTokenRequest request = new RefreshTokenRequest(REFRESH_TOKEN);
 
             mockMvc.perform(post("/api/v1/auth/logout")
+                            .header("Authorization", "Bearer " + ACCESS_TOKEN)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.message").value("Logged out successfully"));
 
-            verify(authService).logout(REFRESH_TOKEN);
+            verify(authService).logout(ACCESS_TOKEN, REFRESH_TOKEN);
+        }
+
+        @Test
+        @DisplayName("should pass null access token when Authorization header is absent")
+        void shouldPassNullAccessTokenWhenNoHeader() throws Exception {
+            RefreshTokenRequest request = new RefreshTokenRequest(REFRESH_TOKEN);
+
+            mockMvc.perform(post("/api/v1/auth/logout")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk());
+
+            verify(authService).logout(null, REFRESH_TOKEN);
         }
     }
 }
