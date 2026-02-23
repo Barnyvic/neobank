@@ -12,7 +12,7 @@ public final class ReferenceGenerator {
     }
 
     public static String generate(String prefix) {
-        return prefix + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
+        return prefix + "-" + UUID.randomUUID().toString().replace("-", "").toUpperCase();
     }
 
     public static String generateWalletNumber() {

@@ -65,4 +65,9 @@ public class Transaction extends Auditable {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "original_transaction_id")
     private Transaction originalTransaction;
+
+    @Version
+    @Column(nullable = false)
+    @Builder.Default
+    private Long version = 0L;
 }

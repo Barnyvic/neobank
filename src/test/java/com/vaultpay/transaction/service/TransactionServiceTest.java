@@ -1,5 +1,6 @@
 package com.vaultpay.transaction.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vaultpay.common.exception.BusinessException;
 import com.vaultpay.common.exception.ErrorCode;
 import com.vaultpay.common.exception.InsufficientFundsException;
@@ -82,6 +83,9 @@ class TransactionServiceTest {
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private ObjectMapper objectMapper;
 
     @InjectMocks
     private TransactionServiceImpl transactionService;
@@ -565,6 +569,23 @@ class TransactionServiceTest {
 
             assertThat(response.status()).isEqualTo("COMPLETED");
             verify(transactionRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should ignore transfer.success for FAILED/REVERSED transaction")
+        void shouldIgnoreForUnexpectedStatus() {
+            Transaction txn = Transaction.builder()
+                    .id(300L).reference("WTH-FAIL").transactionType(TransactionType.WITHDRAWAL)
+                    .status(TransactionStatus.FAILED).amount(BigDecimal.valueOf(5000))
+                    .currency("NGN").build();
+
+            when(transactionRepository.findByReference("WTH-FAIL")).thenReturn(Optional.of(txn));
+
+            TransactionResponse response = transactionService.completeWithdrawal("WTH-FAIL");
+
+            assertThat(response.status()).isEqualTo("FAILED");
+            verify(transactionRepository, never()).save(any());
+            verify(eventPublisher, never()).publishEvent(any());
         }
     }
 

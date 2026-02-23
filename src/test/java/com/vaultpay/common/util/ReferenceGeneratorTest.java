@@ -17,7 +17,7 @@ class ReferenceGeneratorTest {
         void shouldCreateWithPrefix() {
             String ref = ReferenceGenerator.generate("TRF");
             assertThat(ref).startsWith("TRF-");
-            assertThat(ref).hasSize(4 + 16); // "TRF-" + 16 hex chars
+            assertThat(ref).hasSize(4 + 32); 
         }
 
         @Test

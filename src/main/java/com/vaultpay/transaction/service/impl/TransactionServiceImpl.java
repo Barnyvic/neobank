@@ -1,5 +1,7 @@
 package com.vaultpay.transaction.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vaultpay.common.event.TransactionCompletedEvent;
 import com.vaultpay.common.event.WalletFundedEvent;
 import com.vaultpay.common.event.WithdrawalFailedEvent;
@@ -43,7 +45,9 @@ import static com.vaultpay.common.util.MoneyUtil.*;
 import static com.vaultpay.common.util.ReferenceGenerator.generate;
 
 import java.math.BigDecimal;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -62,6 +66,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionLockService lockService;
     private final WalletCacheEvictionService walletCacheEvictionService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -209,7 +214,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         transaction.setStatus(TransactionStatus.COMPLETED);
         transaction.setJournalEntry(journal);
-        transaction.setMetadata("{\"paystackReference\":\"" + paystackReference + "\"}");
+        transaction.setMetadata(toJson(Map.of("paystackReference", paystackReference)));
         transactionRepository.save(transaction);
 
         walletCacheEvictionService.evictWalletCaches(wallet.getId(), wallet.getUser().getId());
@@ -271,7 +276,7 @@ public class TransactionServiceImpl implements TransactionService {
                     .sourceWallet(lockedWallet)
                     .journalEntry(journal)
                     .idempotencyKey(request.idempotencyKey())
-                    .metadata("{\"bankCode\":\"" + request.bankCode() + "\",\"accountNumber\":\"" + request.accountNumber() + "\"}")
+                    .metadata(toJson(Map.of("bankCode", request.bankCode(), "accountNumber", request.accountNumber())))
                     .build();
             transaction = transactionRepository.save(transaction);
 
@@ -307,6 +312,9 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
+    private static final Set<TransactionStatus> COMPLETABLE_WITHDRAWAL_STATUSES =
+            Set.of(TransactionStatus.PROCESSING, TransactionStatus.PENDING_EXTERNAL);
+
     @Override
     @Transactional
     public TransactionResponse completeWithdrawal(String reference) {
@@ -314,6 +322,11 @@ public class TransactionServiceImpl implements TransactionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction", reference));
 
         if (transaction.getStatus() == TransactionStatus.COMPLETED) {
+            return TransactionResponse.from(transaction);
+        }
+
+        if (!COMPLETABLE_WITHDRAWAL_STATUSES.contains(transaction.getStatus())) {
+            log.warn("Ignoring transfer.success for unexpected status: ref={}, status={}", reference, transaction.getStatus());
             return TransactionResponse.from(transaction);
         }
 
@@ -381,4 +394,11 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
+    private String toJson(Map<String, String> data) {
+        try {
+            return objectMapper.writeValueAsString(data);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("Failed to serialize metadata", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
 }
