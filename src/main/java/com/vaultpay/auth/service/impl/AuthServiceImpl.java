@@ -18,6 +18,8 @@ import com.vaultpay.user.entity.User;
 import com.vaultpay.user.enums.KycLevel;
 import com.vaultpay.user.enums.UserStatus;
 import com.vaultpay.user.repository.UserRepository;
+import com.vaultpay.wallet.dto.request.CreateWalletRequest;
+import com.vaultpay.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -43,6 +45,7 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenStore refreshTokenStore;
     private final LoginAttemptService loginAttemptService;
     private final TokenBlacklistService tokenBlacklistService;
+    private final WalletService walletService;
 
     @Value("${app.jwt.access-token-expiration-ms:900000}")
     private long accessTokenExpirationMs;
@@ -70,6 +73,8 @@ public class AuthServiceImpl implements AuthService {
                 .transactionPin(null)
                 .build();
         user = userRepository.save(user);
+
+        walletService.createWallet(user.getId(), new CreateWalletRequest("NGN"));
 
         UserDetails userDetails = new UserPrincipal(user, List.of(new SimpleGrantedAuthority("ROLE_USER")));
         String accessToken = jwtService.generateAccessToken(userDetails);

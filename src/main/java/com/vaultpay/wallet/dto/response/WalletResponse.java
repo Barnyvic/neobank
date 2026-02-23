@@ -1,23 +1,26 @@
 package com.vaultpay.wallet.dto.response;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import com.vaultpay.wallet.entity.Wallet;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class WalletResponse {
-
-    private Long id;
-    private String walletNumber;
-    private String currency;
-    private BigDecimal balance;
-    private String status;
-    private LocalDateTime createdAt;
+public record WalletResponse(
+        Long id,
+        String walletNumber,
+        String currency,
+        BigDecimal balance,
+        String status,
+        LocalDateTime createdAt
+) {
+    public static WalletResponse from(Wallet wallet) {
+        return new WalletResponse(
+                wallet.getId(),
+                wallet.getWalletNumber(),
+                wallet.getCurrency().name(),
+                wallet.getBalance(),
+                wallet.getStatus().name(),
+                wallet.getCreatedAt()
+        );
+    }
 }

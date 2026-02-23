@@ -11,6 +11,8 @@ import com.vaultpay.common.exception.DuplicateResourceException;
 import com.vaultpay.common.exception.ErrorCode;
 import com.vaultpay.common.exception.UnauthorizedException;
 import com.vaultpay.user.entity.User;
+import com.vaultpay.wallet.dto.request.CreateWalletRequest;
+import com.vaultpay.wallet.service.WalletService;
 import com.vaultpay.user.enums.KycLevel;
 import com.vaultpay.user.enums.UserStatus;
 import com.vaultpay.user.repository.UserRepository;
@@ -38,6 +40,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -75,6 +78,9 @@ class AuthServiceTest {
 
     @Mock
     private TokenBlacklistService tokenBlacklistService;
+
+    @Mock
+    private WalletService walletService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -126,6 +132,10 @@ class AuthServiceTest {
             assertThat(captured.getLastName()).isEqualTo(LAST_NAME);
             assertThat(captured.getStatus()).isEqualTo(UserStatus.ACTIVE);
             assertThat(captured.getKycLevel()).isEqualTo(KycLevel.TIER_1);
+
+            ArgumentCaptor<CreateWalletRequest> walletCaptor = ArgumentCaptor.forClass(CreateWalletRequest.class);
+            verify(walletService).createWallet(eq(USER_ID), walletCaptor.capture());
+            assertThat(walletCaptor.getValue().currency()).isEqualTo("NGN");
         }
 
         @Test
@@ -139,6 +149,7 @@ class AuthServiceTest {
                     .isInstanceOf(DuplicateResourceException.class)
                     .hasMessageContaining(EMAIL);
             verify(userRepository, never()).save(any());
+            verify(walletService, never()).createWallet(any(), any());
         }
 
         @Test
@@ -153,6 +164,7 @@ class AuthServiceTest {
                     .isInstanceOf(DuplicateResourceException.class)
                     .hasMessageContaining(PHONE);
             verify(userRepository, never()).save(any());
+            verify(walletService, never()).createWallet(any(), any());
         }
 
         @Test
@@ -173,6 +185,7 @@ class AuthServiceTest {
             ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
             verify(userRepository).save(userCaptor.capture());
             assertThat(userCaptor.getValue().getEmail()).isEqualTo("user@example.com");
+            verify(walletService).createWallet(eq(USER_ID), any(CreateWalletRequest.class));
         }
     }
 
