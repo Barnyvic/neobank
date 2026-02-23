@@ -49,16 +49,19 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.email())) {
-            throw new DuplicateResourceException("User", request.email());
+        String email = request.email().trim().toLowerCase();
+        String phone = request.phoneNumber().trim();
+
+        if (userRepository.existsByEmail(email)) {
+            throw new DuplicateResourceException("User", email);
         }
-        if (userRepository.existsByPhoneNumber(request.phoneNumber())) {
-            throw new DuplicateResourceException("User", request.phoneNumber());
+        if (userRepository.existsByPhoneNumber(phone)) {
+            throw new DuplicateResourceException("User", phone);
         }
 
         User user = User.builder()
-                .email(request.email().trim().toLowerCase())
-                .phoneNumber(request.phoneNumber().trim())
+                .email(email)
+                .phoneNumber(phone)
                 .firstName(request.firstName().trim())
                 .lastName(request.lastName().trim())
                 .passwordHash(passwordEncoder.encode(request.password()))

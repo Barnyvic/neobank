@@ -6,9 +6,12 @@ import com.vaultpay.auth.dto.request.RefreshTokenRequest;
 import com.vaultpay.auth.dto.request.RegisterRequest;
 import com.vaultpay.auth.dto.response.AuthResponse;
 import com.vaultpay.auth.service.AuthService;
+import com.vaultpay.auth.service.JwtService;
+import com.vaultpay.auth.service.TokenBlacklistService;
 import com.vaultpay.common.exception.GlobalExceptionHandler;
 import com.vaultpay.common.exception.DuplicateResourceException;
 import com.vaultpay.common.exception.UnauthorizedException;
+import com.vaultpay.common.ratelimit.RateLimitingFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -28,7 +32,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = AuthController.class)
+@WebMvcTest(controllers = AuthController.class, excludeFilters =
+        @org.springframework.context.annotation.ComponentScan.Filter(
+                type = org.springframework.context.annotation.FilterType.ASSIGNABLE_TYPE,
+                classes = RateLimitingFilter.class))
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
 @DisplayName("AuthController Tests")
@@ -42,6 +49,16 @@ class AuthControllerTest {
 
     @MockBean
     private AuthService authService;
+
+    @MockBean
+    private JwtService jwtService;
+
+    @MockBean
+    private TokenBlacklistService tokenBlacklistService;
+
+    @MockBean
+    private UserDetailsService userDetailsService;
+
 
     private static final String EMAIL = "user@example.com";
     private static final String PASSWORD = "SecurePass1!";

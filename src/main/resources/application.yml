@@ -58,7 +58,7 @@ app:
     secret-key: ${PAYSTACK_SECRET_KEY:sk_test_xxxxx}
     base-url: https://api.paystack.co
 
-  rateLimit:
+  rate-limit:
     enabled: true
     public-rate:
       requests-per-minute: 60

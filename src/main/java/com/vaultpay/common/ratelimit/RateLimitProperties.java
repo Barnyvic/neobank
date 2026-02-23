@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConfigurationProperties(prefix = "app.rateLimit")
+@ConfigurationProperties(prefix = "app.rate-limit")
 @Getter
 @Setter
 public class RateLimitProperties {

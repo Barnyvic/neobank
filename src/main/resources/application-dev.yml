@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/vaultpay_dev
+    url: jdbc:postgresql://localhost:5432/vaultpay
     username: vaultpay
     password: vaultpay
 

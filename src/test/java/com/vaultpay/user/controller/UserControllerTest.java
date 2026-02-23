@@ -2,7 +2,10 @@ package com.vaultpay.user.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vaultpay.auth.security.UserPrincipal;
+import com.vaultpay.auth.service.JwtService;
+import com.vaultpay.auth.service.TokenBlacklistService;
 import com.vaultpay.common.exception.GlobalExceptionHandler;
+import com.vaultpay.common.ratelimit.RateLimitingFilter;
 import com.vaultpay.user.dto.request.SetTransactionPinRequest;
 import com.vaultpay.user.dto.request.UpdateProfileRequest;
 import com.vaultpay.user.dto.response.UserResponse;
@@ -20,11 +23,14 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -36,7 +42,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = UserController.class)
+@WebMvcTest(controllers = UserController.class, excludeFilters =
+        @org.springframework.context.annotation.ComponentScan.Filter(
+                type = org.springframework.context.annotation.FilterType.ASSIGNABLE_TYPE,
+                classes = RateLimitingFilter.class))
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
 @DisplayName("UserController Tests")
@@ -50,6 +59,16 @@ class UserControllerTest {
 
     @MockBean
     private UserService userService;
+
+    @MockBean
+    private JwtService jwtService;
+
+    @MockBean
+    private TokenBlacklistService tokenBlacklistService;
+
+    @MockBean
+    private UserDetailsService userDetailsService;
+
 
     private static final Long USER_ID = 1L;
     private static final String EMAIL = "user@example.com";
@@ -75,7 +94,7 @@ class UserControllerTest {
                 .status(UserStatus.ACTIVE)
                 .kycLevel(KycLevel.TIER_1)
                 .build();
-        UserPrincipal principal = new UserPrincipal(user);
+        UserPrincipal principal = new UserPrincipal(user, List.of(new SimpleGrantedAuthority("ROLE_USER")));
         UsernamePasswordAuthenticationToken auth =
                 new UsernamePasswordAuthenticationToken(
                         principal, null, principal.getAuthorities());

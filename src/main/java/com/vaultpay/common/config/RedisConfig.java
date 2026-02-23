@@ -1,11 +1,14 @@
 package com.vaultpay.common.config;
 
+import io.github.bucket4j.distributed.ExpirationAfterWriteStrategy;
 import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
+
+import java.time.Duration;
 
 @Configuration
 public class RedisConfig {
@@ -26,7 +29,11 @@ public class RedisConfig {
 
     @Bean
     public LettuceBasedProxyManager bucket4jProxyManager(RedisClient bucket4jRedisClient) {
-        return LettuceBasedProxyManager.builderFor(bucket4jRedisClient).build();
+        return LettuceBasedProxyManager.builderFor(bucket4jRedisClient)
+                .withExpirationStrategy(
+                        ExpirationAfterWriteStrategy.basedOnTimeForRefillingBucketUpToMax(Duration.ofMinutes(2))
+                )
+                .build();
     }
 }
 
