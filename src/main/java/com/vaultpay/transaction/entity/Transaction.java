@@ -61,4 +61,8 @@ public class Transaction extends Auditable {
 
     @Column(columnDefinition = "jsonb")
     private String metadata;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "original_transaction_id")
+    private Transaction originalTransaction;
 }

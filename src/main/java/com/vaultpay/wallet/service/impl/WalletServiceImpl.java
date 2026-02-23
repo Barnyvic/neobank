@@ -27,8 +27,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import static com.vaultpay.common.config.CacheConfig.*;
+import static com.vaultpay.common.util.ReferenceGenerator.generateWalletNumber;
 
-import java.security.SecureRandom;
 import java.util.List;
 
 @Slf4j
@@ -36,13 +36,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class WalletServiceImpl implements WalletService {
 
-    private static final int WALLET_NUMBER_LENGTH = 10;
     private static final int MAX_GENERATION_ATTEMPTS = 10;
 
     private final WalletRepository walletRepository;
     private final UserRepository userRepository;
     private final LedgerAccountRepository ledgerAccountRepository;
-    private final SecureRandom secureRandom = new SecureRandom();
 
     @Override
     @Transactional
@@ -106,7 +104,9 @@ public class WalletServiceImpl implements WalletService {
     public BalanceResponse getBalance(Long walletId) {
         Wallet wallet = walletRepository.findById(walletId)
                 .orElseThrow(() -> new ResourceNotFoundException("Wallet", walletId.toString()));
-        return BalanceResponse.from(wallet);
+        LedgerAccount ledgerAccount = ledgerAccountRepository.findByWalletId(walletId)
+                .orElseThrow(() -> new ResourceNotFoundException("LedgerAccount", walletId.toString()));
+        return BalanceResponse.from(wallet, ledgerAccount);
     }
 
     @Override
@@ -149,11 +149,7 @@ public class WalletServiceImpl implements WalletService {
 
     private String generateUniqueWalletNumber() {
         for (int attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
-            StringBuilder sb = new StringBuilder(WALLET_NUMBER_LENGTH);
-            for (int i = 0; i < WALLET_NUMBER_LENGTH; i++) {
-                sb.append(secureRandom.nextInt(10));
-            }
-            String number = sb.toString();
+            String number = generateWalletNumber();
             if (walletRepository.findByWalletNumber(number).isEmpty()) {
                 return number;
             }

@@ -33,5 +33,13 @@ public interface LedgerService {
             String description
     );
 
+    JournalEntry createReversalEntry(
+            LedgerAccount userAccount,
+            LedgerAccount systemAccount,
+            BigDecimal amount,
+            String reference,
+            String description
+    );
+
     LedgerAccount getOrCreateSystemAccount(String accountName);
 }

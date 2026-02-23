@@ -142,11 +142,14 @@ class WalletServiceTest {
     class GetBalance {
 
         @Test
-        @DisplayName("should return wallet balance")
+        @DisplayName("should return balance from ledger account")
         void shouldReturnBalance() {
             Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, null);
-            wallet.setBalance(BigDecimal.valueOf(5000));
+            LedgerAccount ledgerAccount = LedgerAccount.builder()
+                    .id(10L).accountName("WALLET:1234567890")
+                    .balance(BigDecimal.valueOf(5000)).wallet(wallet).build();
             when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
+            when(ledgerAccountRepository.findByWalletId(1L)).thenReturn(Optional.of(ledgerAccount));
 
             BalanceResponse response = walletService.getBalance(1L);
 

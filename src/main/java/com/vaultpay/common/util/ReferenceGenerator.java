@@ -1,33 +1,25 @@
 package com.vaultpay.common.util;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.security.SecureRandom;
 import java.util.UUID;
 
 public final class ReferenceGenerator {
 
-    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final int WALLET_NUMBER_LENGTH = 10;
 
     private ReferenceGenerator() {
     }
 
-    public static String generateTransactionReference() {
-        return "TXN-" + LocalDateTime.now().format(FORMATTER) + "-" + shortUuid();
-    }
-
-    public static String generateDepositReference() {
-        return "DEP-" + LocalDateTime.now().format(FORMATTER) + "-" + shortUuid();
-    }
-
-    public static String generateWithdrawalReference() {
-        return "WDR-" + LocalDateTime.now().format(FORMATTER) + "-" + shortUuid();
+    public static String generate(String prefix) {
+        return prefix + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
     }
 
     public static String generateWalletNumber() {
-        return "VP" + System.currentTimeMillis();
-    }
-
-    private static String shortUuid() {
-        return UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        StringBuilder sb = new StringBuilder(WALLET_NUMBER_LENGTH);
+        for (int i = 0; i < WALLET_NUMBER_LENGTH; i++) {
+            sb.append(SECURE_RANDOM.nextInt(10));
+        }
+        return sb.toString();
     }
 }

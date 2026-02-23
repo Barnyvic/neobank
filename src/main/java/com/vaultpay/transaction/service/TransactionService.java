@@ -20,4 +20,8 @@ public interface TransactionService {
     TransactionResponse getTransaction(String reference);
 
     Page<TransactionResponse> getTransactionHistory(Long walletId, Pageable pageable);
+
+    TransactionResponse completeWithdrawal(String reference);
+
+    void failFunding(String reference);
 }

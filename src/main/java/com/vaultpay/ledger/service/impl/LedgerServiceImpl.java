@@ -15,6 +15,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vaultpay.wallet.entity.Wallet;
+
+import static com.vaultpay.common.util.MoneyUtil.scale;
+
 import java.math.BigDecimal;
 
 @Slf4j
@@ -39,8 +43,10 @@ public class LedgerServiceImpl implements LedgerService {
                             HttpStatus.INTERNAL_SERVER_ERROR));
 
             BigDecimal adjustment = computeAdjustment(account.getAccountType(), entry.getEntryType(), entry.getAmount());
-            account.setBalance(account.getBalance().add(adjustment));
+            account.setBalance(scale(account.getBalance().add(adjustment)));
             ledgerAccountRepository.save(account);
+
+            syncWalletBalance(account);
         }
 
         log.debug("Posted journal entry ref={}, entries={}", saved.getReference(), saved.getEntries().size());
@@ -128,6 +134,32 @@ public class LedgerServiceImpl implements LedgerService {
 
     @Override
     @Transactional
+    public JournalEntry createReversalEntry(
+            LedgerAccount userAccount, LedgerAccount systemAccount,
+            BigDecimal amount, String reference, String description) {
+
+        JournalEntry journal = JournalEntry.builder()
+                .reference(reference)
+                .description(description)
+                .build();
+
+        journal.addEntry(LedgerEntry.builder()
+                .ledgerAccount(systemAccount)
+                .entryType(EntryType.DEBIT)
+                .amount(amount)
+                .build());
+
+        journal.addEntry(LedgerEntry.builder()
+                .ledgerAccount(userAccount)
+                .entryType(EntryType.CREDIT)
+                .amount(amount)
+                .build());
+
+        return postJournalEntry(journal);
+    }
+
+    @Override
+    @Transactional
     public LedgerAccount getOrCreateSystemAccount(String accountName) {
         return ledgerAccountRepository
                 .findByAccountNameAndAccountType(accountName, AccountType.LIABILITY)
@@ -166,5 +198,13 @@ public class LedgerServiceImpl implements LedgerService {
         } else {
             return entryType == EntryType.CREDIT ? amount : amount.negate();
         }
+    }
+
+    private void syncWalletBalance(LedgerAccount account) {
+        Wallet wallet = account.getWallet();
+        if (wallet == null) {
+            return;
+        }
+        wallet.setBalance(account.getBalance());
     }
 }

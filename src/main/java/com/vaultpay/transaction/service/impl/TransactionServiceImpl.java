@@ -2,12 +2,15 @@ package com.vaultpay.transaction.service.impl;
 
 import com.vaultpay.common.event.TransactionCompletedEvent;
 import com.vaultpay.common.event.WalletFundedEvent;
+import com.vaultpay.common.event.WithdrawalFailedEvent;
 import com.vaultpay.common.exception.*;
 import com.vaultpay.ledger.entity.LedgerAccount;
 import com.vaultpay.ledger.repository.LedgerAccountRepository;
 import com.vaultpay.ledger.entity.JournalEntry;
 import com.vaultpay.ledger.service.LedgerService;
 import com.vaultpay.paystack.dto.InitializePaymentResponse;
+import com.vaultpay.paystack.dto.InitiateTransferResponse;
+import com.vaultpay.paystack.dto.TransferRecipientResponse;
 import com.vaultpay.paystack.service.PaystackService;
 import com.vaultpay.transaction.dto.request.FundWalletRequest;
 import com.vaultpay.transaction.dto.request.TransferRequest;
@@ -36,10 +39,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import static com.vaultpay.common.config.CacheConfig.*;
+import static com.vaultpay.common.util.MoneyUtil.*;
+import static com.vaultpay.common.util.ReferenceGenerator.generate;
 
 import java.math.BigDecimal;
 import java.util.Optional;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -102,48 +106,42 @@ public class TransactionServiceImpl implements TransactionService {
             Wallet lockedSource = walletRepository.findByIdWithLock(sourceWallet.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Wallet", sourceWallet.getId().toString()));
 
-            if (lockedSource.getBalance().compareTo(request.amount()) < 0) {
-                throw new InsufficientFundsException();
-            }
-
             LedgerAccount sourceAccount = ledgerAccountRepository.findByWalletId(lockedSource.getId())
                     .orElseThrow(() -> new BusinessException("Ledger account not found for source wallet", HttpStatus.INTERNAL_SERVER_ERROR));
             LedgerAccount destAccount = ledgerAccountRepository.findByWalletId(destWallet.getId())
                     .orElseThrow(() -> new BusinessException("Ledger account not found for destination wallet", HttpStatus.INTERNAL_SERVER_ERROR));
 
-            String reference = generateReference("TRF");
+            if (!hasSufficientFunds(sourceAccount.getBalance(), request.amount())) {
+                throw new InsufficientFundsException();
+            }
+
+            String reference = generate("TRF");
             String description = request.description() != null ? request.description() : "Transfer to " + destWallet.getWalletNumber();
 
-            JournalEntry journal = ledgerService.createTransferEntry(sourceAccount, destAccount, request.amount(), reference, description);
+            BigDecimal scaledAmount = scale(request.amount());
 
-            lockedSource.setBalance(lockedSource.getBalance().subtract(request.amount()));
-            walletRepository.save(lockedSource);
-
-            Wallet lockedDest = walletRepository.findByIdWithLock(destWallet.getId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Wallet", destWallet.getId().toString()));
-            lockedDest.setBalance(lockedDest.getBalance().add(request.amount()));
-            walletRepository.save(lockedDest);
+            JournalEntry journal = ledgerService.createTransferEntry(sourceAccount, destAccount, scaledAmount, reference, description);
 
             Transaction transaction = Transaction.builder()
                     .reference(reference)
                     .transactionType(TransactionType.TRANSFER)
                     .status(TransactionStatus.COMPLETED)
-                    .amount(request.amount())
+                    .amount(scaledAmount)
                     .currency(lockedSource.getCurrency().name())
                     .description(description)
                     .sourceWallet(lockedSource)
-                    .destWallet(lockedDest)
+                    .destWallet(destWallet)
                     .journalEntry(journal)
                     .idempotencyKey(request.idempotencyKey())
                     .build();
             transaction = transactionRepository.save(transaction);
 
             walletCacheEvictionService.evictWalletCaches(lockedSource.getId(), userId);
-            walletCacheEvictionService.evictWalletCaches(lockedDest.getId(), lockedDest.getUser().getId());
+            walletCacheEvictionService.evictWalletCaches(destWallet.getId(), destWallet.getUser().getId());
 
             eventPublisher.publishEvent(new TransactionCompletedEvent(this, transaction.getId(), reference));
             log.info("Transfer completed: ref={}, amount={}, {} -> {}", reference, request.amount(),
-                    lockedSource.getWalletNumber(), lockedDest.getWalletNumber());
+                    lockedSource.getWalletNumber(), destWallet.getWalletNumber());
 
             return TransactionResponse.from(transaction);
         } finally {
@@ -164,7 +162,7 @@ public class TransactionServiceImpl implements TransactionService {
         validateWalletActive(wallet, "Funding target");
         validateWalletOwnership(wallet, userId);
 
-        String reference = generateReference("FND");
+        String reference = generate("FND");
 
         Transaction transaction = Transaction.builder()
                 .reference(reference)
@@ -209,9 +207,6 @@ public class TransactionServiceImpl implements TransactionService {
         JournalEntry journal = ledgerService.createFundingEntry(
                 userAccount, paystackAccount, transaction.getAmount(), reference, "Paystack funding: " + paystackReference);
 
-        wallet.setBalance(wallet.getBalance().add(transaction.getAmount()));
-        walletRepository.save(wallet);
-
         transaction.setStatus(TransactionStatus.COMPLETED);
         transaction.setJournalEntry(journal);
         transaction.setMetadata("{\"paystackReference\":\"" + paystackReference + "\"}");
@@ -252,27 +247,24 @@ public class TransactionServiceImpl implements TransactionService {
             Wallet lockedWallet = walletRepository.findByIdWithLock(wallet.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Wallet", wallet.getId().toString()));
 
-            if (lockedWallet.getBalance().compareTo(request.amount()) < 0) {
-                throw new InsufficientFundsException();
-            }
-
             LedgerAccount userAccount = ledgerAccountRepository.findByWalletId(lockedWallet.getId())
                     .orElseThrow(() -> new BusinessException("Ledger account not found for wallet", HttpStatus.INTERNAL_SERVER_ERROR));
+
+            if (!hasSufficientFunds(userAccount.getBalance(), request.amount())) {
+                throw new InsufficientFundsException();
+            }
             LedgerAccount paystackAccount = ledgerService.getOrCreateSystemAccount(PAYSTACK_SYSTEM_ACCOUNT);
 
-            String reference = generateReference("WTH");
+            String reference = generate("WTH");
             String description = "Withdrawal to bank " + request.bankCode() + " - " + request.accountNumber();
 
             JournalEntry journal = ledgerService.createWithdrawalEntry(
                     userAccount, paystackAccount, request.amount(), reference, description);
 
-            lockedWallet.setBalance(lockedWallet.getBalance().subtract(request.amount()));
-            walletRepository.save(lockedWallet);
-
             Transaction transaction = Transaction.builder()
                     .reference(reference)
                     .transactionType(TransactionType.WITHDRAWAL)
-                    .status(TransactionStatus.COMPLETED)
+                    .status(TransactionStatus.PENDING_EXTERNAL)
                     .amount(request.amount())
                     .currency(lockedWallet.getCurrency().name())
                     .description(description)
@@ -285,13 +277,69 @@ public class TransactionServiceImpl implements TransactionService {
 
             walletCacheEvictionService.evictWalletCaches(lockedWallet.getId(), userId);
 
-            eventPublisher.publishEvent(new TransactionCompletedEvent(this, transaction.getId(), reference));
-            log.info("Withdrawal completed: ref={}, amount={}, wallet={}", reference, request.amount(), lockedWallet.getWalletNumber());
+            try {
+                TransferRecipientResponse recipientResponse = paystackService.createTransferRecipient(
+                        request.bankCode(), request.accountNumber(),
+                        lockedWallet.getUser().getFirstName() + " " + lockedWallet.getUser().getLastName());
+
+                BigDecimal amountInKobo = request.amount().multiply(BigDecimal.valueOf(100));
+                InitiateTransferResponse transferResponse = paystackService.initiateTransfer(
+                        recipientResponse.getData().getRecipientCode(),
+                        amountInKobo, reference, description, lockedWallet.getCurrency().name());
+
+                transaction.setStatus(TransactionStatus.PROCESSING);
+                transactionRepository.save(transaction);
+                log.info("Withdrawal initiated: ref={}, amount={}, wallet={}", reference, request.amount(), lockedWallet.getWalletNumber());
+            } catch (Exception e) {
+                log.error("Paystack transfer failed for ref={}: {}", reference, e.getMessage());
+                transaction.setStatus(TransactionStatus.EXTERNAL_FAILED);
+                transactionRepository.save(transaction);
+
+                eventPublisher.publishEvent(new WithdrawalFailedEvent(
+                        this, transaction.getId(), reference,
+                        request.bankCode(), request.accountNumber(),
+                        request.amount(), lockedWallet.getCurrency().name(), 1));
+            }
 
             return TransactionResponse.from(transaction);
         } finally {
             lockService.releaseLock(userId, wallet.getId());
         }
+    }
+
+    @Override
+    @Transactional
+    public TransactionResponse completeWithdrawal(String reference) {
+        Transaction transaction = transactionRepository.findByReference(reference)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction", reference));
+
+        if (transaction.getStatus() == TransactionStatus.COMPLETED) {
+            return TransactionResponse.from(transaction);
+        }
+
+        transaction.setStatus(TransactionStatus.COMPLETED);
+        transactionRepository.save(transaction);
+
+        eventPublisher.publishEvent(new TransactionCompletedEvent(this, transaction.getId(), reference));
+        log.info("Withdrawal completed via webhook: ref={}", reference);
+
+        return TransactionResponse.from(transaction);
+    }
+
+    @Override
+    @Transactional
+    public void failFunding(String reference) {
+        Transaction transaction = transactionRepository.findByReference(reference)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction", reference));
+
+        if (transaction.getStatus() != TransactionStatus.PENDING) {
+            log.warn("Ignoring charge.failed for non-PENDING transaction: ref={}, status={}", reference, transaction.getStatus());
+            return;
+        }
+
+        transaction.setStatus(TransactionStatus.FAILED);
+        transactionRepository.save(transaction);
+        log.info("Funding marked as failed: ref={}", reference);
     }
 
     @Override
@@ -333,7 +381,4 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
-    private String generateReference(String prefix) {
-        return prefix + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
-    }
 }

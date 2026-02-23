@@ -3,6 +3,7 @@ package com.vaultpay.paystack.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vaultpay.paystack.service.PaystackService;
+import com.vaultpay.transaction.service.RefundService;
 import com.vaultpay.transaction.service.TransactionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,6 +21,7 @@ public class PaystackWebhookController {
 
     private final PaystackService paystackService;
     private final TransactionService transactionService;
+    private final RefundService refundService;
     private final ObjectMapper objectMapper;
 
     @PostMapping("/webhook")
@@ -36,14 +38,28 @@ public class PaystackWebhookController {
         try {
             JsonNode root = objectMapper.readTree(payload);
             String event = root.path("event").asText();
+            JsonNode data = root.path("data");
+            String reference = data.path("reference").asText();
 
-            if ("charge.success".equals(event)) {
-                JsonNode data = root.path("data");
-                String reference = data.path("reference").asText();
-                String paystackRef = data.path("id").asText();
-
-                log.info("Processing Paystack charge.success: ref={}", reference);
-                transactionService.completeFunding(reference, paystackRef);
+            switch (event) {
+                case "charge.success" -> {
+                    String paystackRef = data.path("id").asText();
+                    log.info("Processing charge.success: ref={}", reference);
+                    transactionService.completeFunding(reference, paystackRef);
+                }
+                case "charge.failed" -> {
+                    log.info("Processing charge.failed: ref={}", reference);
+                    transactionService.failFunding(reference);
+                }
+                case "transfer.success" -> {
+                    log.info("Processing transfer.success: ref={}", reference);
+                    transactionService.completeWithdrawal(reference);
+                }
+                case "transfer.failed", "transfer.reversed" -> {
+                    log.info("Processing {}: ref={}", event, reference);
+                    refundService.reverseTransaction(reference);
+                }
+                default -> log.debug("Ignoring unhandled Paystack event: {}", event);
             }
         } catch (Exception e) {
             log.error("Error processing Paystack webhook", e);

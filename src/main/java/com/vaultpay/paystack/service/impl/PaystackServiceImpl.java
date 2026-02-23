@@ -2,9 +2,7 @@ package com.vaultpay.paystack.service.impl;
 
 import com.vaultpay.common.exception.BusinessException;
 import com.vaultpay.paystack.config.PaystackConfig;
-import com.vaultpay.paystack.dto.InitializePaymentRequest;
-import com.vaultpay.paystack.dto.InitializePaymentResponse;
-import com.vaultpay.paystack.dto.VerifyPaymentResponse;
+import com.vaultpay.paystack.dto.*;
 import com.vaultpay.paystack.service.PaystackService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -80,6 +78,59 @@ public class PaystackServiceImpl implements PaystackService {
         } catch (Exception e) {
             log.error("Webhook signature verification failed: {}", e.getMessage());
             return false;
+        }
+    }
+
+    @Override
+    public TransferRecipientResponse createTransferRecipient(
+            String bankCode, String accountNumber, String name) {
+        String url = paystackConfig.getBaseUrl() + "/transferrecipient";
+
+        TransferRecipientRequest request = TransferRecipientRequest.builder()
+                .type("nuban")
+                .name(name)
+                .accountNumber(accountNumber)
+                .bankCode(bankCode)
+                .currency("NGN")
+                .build();
+
+        HttpHeaders headers = buildHeaders();
+        HttpEntity<TransferRecipientRequest> entity = new HttpEntity<>(request, headers);
+
+        try {
+            ResponseEntity<TransferRecipientResponse> response =
+                    restTemplate.exchange(url, HttpMethod.POST, entity, TransferRecipientResponse.class);
+            return response.getBody();
+        } catch (Exception e) {
+            log.error("Paystack create transfer recipient failed: {}", e.getMessage());
+            throw new BusinessException("Failed to create transfer recipient.", HttpStatus.SERVICE_UNAVAILABLE);
+        }
+    }
+
+    @Override
+    public InitiateTransferResponse initiateTransfer(
+            String recipientCode, BigDecimal amount, String reference, String reason, String currency) {
+        String url = paystackConfig.getBaseUrl() + "/transfer";
+
+        InitiateTransferRequest request = InitiateTransferRequest.builder()
+                .source("balance")
+                .reason(reason)
+                .amount(amount.toBigInteger().toString())
+                .recipient(recipientCode)
+                .reference(reference)
+                .currency(currency)
+                .build();
+
+        HttpHeaders headers = buildHeaders();
+        HttpEntity<InitiateTransferRequest> entity = new HttpEntity<>(request, headers);
+
+        try {
+            ResponseEntity<InitiateTransferResponse> response =
+                    restTemplate.exchange(url, HttpMethod.POST, entity, InitiateTransferResponse.class);
+            return response.getBody();
+        } catch (Exception e) {
+            log.error("Paystack initiate transfer failed: ref={}, error={}", reference, e.getMessage());
+            throw new BusinessException("Transfer initiation failed.", HttpStatus.SERVICE_UNAVAILABLE);
         }
     }
 

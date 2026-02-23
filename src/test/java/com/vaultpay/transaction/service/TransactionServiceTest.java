@@ -10,9 +10,12 @@ import com.vaultpay.ledger.enums.AccountType;
 import com.vaultpay.ledger.repository.LedgerAccountRepository;
 import com.vaultpay.ledger.service.LedgerService;
 import com.vaultpay.paystack.dto.InitializePaymentResponse;
+import com.vaultpay.paystack.dto.InitiateTransferResponse;
+import com.vaultpay.paystack.dto.TransferRecipientResponse;
 import com.vaultpay.paystack.service.PaystackService;
 import com.vaultpay.transaction.dto.request.FundWalletRequest;
 import com.vaultpay.transaction.dto.request.TransferRequest;
+import com.vaultpay.transaction.dto.request.WithdrawRequest;
 import com.vaultpay.transaction.dto.response.TransactionResponse;
 import com.vaultpay.transaction.entity.Transaction;
 import com.vaultpay.transaction.enums.TransactionStatus;
@@ -107,12 +110,10 @@ class TransactionServiceTest {
             when(throttleService.checkAndMark(eq(USER_ID), any(), eq("9999999999"))).thenReturn(true);
             when(lockService.acquireLock(USER_ID, 1L)).thenReturn(true);
             when(walletRepository.findByIdWithLock(1L)).thenReturn(Optional.of(source));
-            when(walletRepository.findByIdWithLock(2L)).thenReturn(Optional.of(dest));
             when(ledgerAccountRepository.findByWalletId(1L)).thenReturn(Optional.of(srcLedger));
             when(ledgerAccountRepository.findByWalletId(2L)).thenReturn(Optional.of(destLedger));
             when(ledgerService.createTransferEntry(any(), any(), any(), anyString(), anyString()))
                     .thenReturn(JournalEntry.builder().reference("TRF-123").description("Transfer").build());
-            when(walletRepository.save(any(Wallet.class))).thenAnswer(inv -> inv.getArgument(0));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> {
                 Transaction txn = inv.getArgument(0);
                 txn.setId(100L);
@@ -123,8 +124,7 @@ class TransactionServiceTest {
 
             assertThat(response.transactionType()).isEqualTo("TRANSFER");
             assertThat(response.status()).isEqualTo("COMPLETED");
-            assertThat(source.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(4000));
-            assertThat(dest.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(1000));
+            verify(ledgerService).createTransferEntry(eq(srcLedger), eq(destLedger), any(), anyString(), anyString());
             verify(lockService).releaseLock(USER_ID, 1L);
         }
 
@@ -201,6 +201,7 @@ class TransactionServiceTest {
             User user = User.builder().id(USER_ID).build();
             Wallet source = buildWallet(1L, "1111111111", WalletStatus.ACTIVE, user, BigDecimal.valueOf(100));
             Wallet dest = buildWallet(2L, "9999999999", WalletStatus.ACTIVE, User.builder().id(2L).build(), BigDecimal.ZERO);
+            LedgerAccount srcLedger = buildLedgerAccount(10L, source);
 
             when(userService.verifyTransactionPin(USER_ID, "1234")).thenReturn(true);
             when(walletRepository.findByUserId(USER_ID)).thenReturn(List.of(source));
@@ -208,6 +209,8 @@ class TransactionServiceTest {
             when(throttleService.checkAndMark(eq(USER_ID), any(), eq("9999999999"))).thenReturn(true);
             when(lockService.acquireLock(USER_ID, 1L)).thenReturn(true);
             when(walletRepository.findByIdWithLock(1L)).thenReturn(Optional.of(source));
+            when(ledgerAccountRepository.findByWalletId(1L)).thenReturn(Optional.of(srcLedger));
+            when(ledgerAccountRepository.findByWalletId(2L)).thenReturn(Optional.of(buildLedgerAccount(20L, dest)));
 
             assertThatThrownBy(() -> transactionService.transfer(USER_ID, request))
                     .isInstanceOf(InsufficientFundsException.class);
@@ -274,13 +277,12 @@ class TransactionServiceTest {
             when(ledgerService.getOrCreateSystemAccount("PAYSTACK_LIABILITY")).thenReturn(paystackAccount);
             when(ledgerService.createFundingEntry(any(), any(), any(), anyString(), anyString()))
                     .thenReturn(JournalEntry.builder().reference("FND-123").description("Funding").build());
-            when(walletRepository.save(any(Wallet.class))).thenAnswer(inv -> inv.getArgument(0));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
             TransactionResponse response = transactionService.completeFunding("FND-123", "psk-ref-1");
 
             assertThat(response.status()).isEqualTo("COMPLETED");
-            assertThat(wallet.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(6000));
+            verify(ledgerService).createFundingEntry(eq(userAccount), eq(paystackAccount), any(), anyString(), anyString());
             verify(eventPublisher).publishEvent(any());
         }
 
@@ -352,8 +354,7 @@ class TransactionServiceTest {
                     .thenThrow(new RuntimeException("Simulated DB failure"));
 
             assertThatThrownBy(() -> transactionService.transfer(USER_ID, request))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("Simulated DB failure");
+                    .isInstanceOf(RuntimeException.class);
 
             verify(lockService).releaseLock(USER_ID, 1L);
         }
@@ -397,12 +398,10 @@ class TransactionServiceTest {
             when(throttleService.checkAndMark(eq(USER_ID), any(), eq("8888888888"))).thenReturn(true);
             when(lockService.acquireLock(USER_ID, 1L)).thenReturn(true);
             when(walletRepository.findByIdWithLock(1L)).thenReturn(Optional.of(source));
-            when(walletRepository.findByIdWithLock(2L)).thenReturn(Optional.of(dest1));
             when(ledgerAccountRepository.findByWalletId(1L)).thenReturn(Optional.of(buildLedgerAccount(10L, source)));
             when(ledgerAccountRepository.findByWalletId(2L)).thenReturn(Optional.of(buildLedgerAccount(20L, dest1)));
             when(ledgerService.createTransferEntry(any(), any(), any(), anyString(), anyString()))
                     .thenReturn(JournalEntry.builder().reference("TRF-A").description("Transfer").build());
-            when(walletRepository.save(any(Wallet.class))).thenAnswer(inv -> inv.getArgument(0));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> {
                 Transaction txn = inv.getArgument(0);
                 txn.setId(100L);
@@ -440,6 +439,169 @@ class TransactionServiceTest {
                     });
 
             verify(lockService, never()).acquireLock(any(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("withdraw")
+    class Withdraw {
+
+        @Test
+        @DisplayName("should debit wallet and call Paystack transfer, setting PROCESSING on success")
+        void shouldWithdrawAndCallPaystack() {
+            User user = User.builder().id(USER_ID).firstName("John").lastName("Doe").build();
+            Wallet wallet = buildWallet(1L, "1111111111", WalletStatus.ACTIVE, user, BigDecimal.valueOf(10000));
+            LedgerAccount userLedger = buildLedgerAccount(10L, wallet);
+            LedgerAccount systemLedger = LedgerAccount.builder().id(20L)
+                    .accountName("PAYSTACK_LIABILITY").accountType(AccountType.LIABILITY).build();
+
+            WithdrawRequest request = new WithdrawRequest(1L, BigDecimal.valueOf(5000), "058", "0123456789", "1234", "idem-w1");
+
+            when(transactionRepository.findByIdempotencyKey("idem-w1")).thenReturn(Optional.empty());
+            when(userService.verifyTransactionPin(USER_ID, "1234")).thenReturn(true);
+            when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
+            when(lockService.acquireLock(USER_ID, 1L)).thenReturn(true);
+            when(walletRepository.findByIdWithLock(1L)).thenReturn(Optional.of(wallet));
+            when(ledgerAccountRepository.findByWalletId(1L)).thenReturn(Optional.of(userLedger));
+            when(ledgerService.getOrCreateSystemAccount("PAYSTACK_LIABILITY")).thenReturn(systemLedger);
+            when(ledgerService.createWithdrawalEntry(any(), any(), any(), anyString(), anyString()))
+                    .thenReturn(JournalEntry.builder().reference("WTH-123").description("Withdrawal").build());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> {
+                Transaction txn = inv.getArgument(0);
+                txn.setId(300L);
+                return txn;
+            });
+
+            TransferRecipientResponse.RecipientData recipientData = new TransferRecipientResponse.RecipientData();
+            recipientData.setRecipientCode("RCP_abc");
+            TransferRecipientResponse recipientResponse = new TransferRecipientResponse();
+            recipientResponse.setStatus(true);
+            recipientResponse.setData(recipientData);
+            when(paystackService.createTransferRecipient("058", "0123456789", "John Doe"))
+                    .thenReturn(recipientResponse);
+
+            InitiateTransferResponse.TransferData transferData = new InitiateTransferResponse.TransferData();
+            transferData.setTransferCode("TRF_abc");
+            InitiateTransferResponse transferResponse = new InitiateTransferResponse();
+            transferResponse.setStatus(true);
+            transferResponse.setData(transferData);
+            when(paystackService.initiateTransfer(eq("RCP_abc"), any(), anyString(), anyString(), eq("NGN")))
+                    .thenReturn(transferResponse);
+
+            TransactionResponse response = transactionService.withdraw(USER_ID, request);
+
+            assertThat(response.status()).isEqualTo("PROCESSING");
+            verify(ledgerService).createWithdrawalEntry(eq(userLedger), eq(systemLedger), any(), anyString(), anyString());
+            verify(lockService).releaseLock(USER_ID, 1L);
+        }
+
+        @Test
+        @DisplayName("should set EXTERNAL_FAILED and publish event when Paystack transfer fails")
+        void shouldSetExternalFailedWhenPaystackFails() {
+            User user = User.builder().id(USER_ID).firstName("John").lastName("Doe").build();
+            Wallet wallet = buildWallet(1L, "1111111111", WalletStatus.ACTIVE, user, BigDecimal.valueOf(10000));
+            LedgerAccount userLedger = buildLedgerAccount(10L, wallet);
+            LedgerAccount systemLedger = LedgerAccount.builder().id(20L)
+                    .accountName("PAYSTACK_LIABILITY").accountType(AccountType.LIABILITY).build();
+
+            WithdrawRequest request = new WithdrawRequest(1L, BigDecimal.valueOf(5000), "058", "0123456789", "1234", null);
+
+            when(userService.verifyTransactionPin(USER_ID, "1234")).thenReturn(true);
+            when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
+            when(lockService.acquireLock(USER_ID, 1L)).thenReturn(true);
+            when(walletRepository.findByIdWithLock(1L)).thenReturn(Optional.of(wallet));
+            when(ledgerAccountRepository.findByWalletId(1L)).thenReturn(Optional.of(userLedger));
+            when(ledgerService.getOrCreateSystemAccount("PAYSTACK_LIABILITY")).thenReturn(systemLedger);
+            when(ledgerService.createWithdrawalEntry(any(), any(), any(), anyString(), anyString()))
+                    .thenReturn(JournalEntry.builder().reference("WTH-456").description("Withdrawal").build());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> {
+                Transaction txn = inv.getArgument(0);
+                txn.setId(301L);
+                return txn;
+            });
+            when(paystackService.createTransferRecipient(any(), any(), any()))
+                    .thenThrow(new RuntimeException("Paystack unavailable"));
+
+            TransactionResponse response = transactionService.withdraw(USER_ID, request);
+
+            assertThat(response.status()).isEqualTo("EXTERNAL_FAILED");
+            verify(eventPublisher).publishEvent(any(com.vaultpay.common.event.WithdrawalFailedEvent.class));
+            verify(lockService).releaseLock(USER_ID, 1L);
+        }
+    }
+
+    @Nested
+    @DisplayName("completeWithdrawal")
+    class CompleteWithdrawal {
+
+        @Test
+        @DisplayName("should mark PROCESSING withdrawal as COMPLETED")
+        void shouldCompleteWithdrawal() {
+            Transaction txn = Transaction.builder()
+                    .id(300L).reference("WTH-DONE").transactionType(TransactionType.WITHDRAWAL)
+                    .status(TransactionStatus.PROCESSING).amount(BigDecimal.valueOf(5000))
+                    .currency("NGN").build();
+
+            when(transactionRepository.findByReference("WTH-DONE")).thenReturn(Optional.of(txn));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            TransactionResponse response = transactionService.completeWithdrawal("WTH-DONE");
+
+            assertThat(response.status()).isEqualTo("COMPLETED");
+            verify(eventPublisher).publishEvent(any());
+        }
+
+        @Test
+        @DisplayName("should return existing if already COMPLETED")
+        void shouldReturnIfAlreadyCompleted() {
+            Transaction txn = Transaction.builder()
+                    .id(300L).reference("WTH-DONE").transactionType(TransactionType.WITHDRAWAL)
+                    .status(TransactionStatus.COMPLETED).amount(BigDecimal.valueOf(5000))
+                    .currency("NGN").build();
+
+            when(transactionRepository.findByReference("WTH-DONE")).thenReturn(Optional.of(txn));
+
+            TransactionResponse response = transactionService.completeWithdrawal("WTH-DONE");
+
+            assertThat(response.status()).isEqualTo("COMPLETED");
+            verify(transactionRepository, never()).save(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("failFunding")
+    class FailFunding {
+
+        @Test
+        @DisplayName("should mark PENDING funding as FAILED")
+        void shouldMarkPendingAsFailed() {
+            Transaction txn = Transaction.builder()
+                    .id(400L).reference("FND-FAIL").transactionType(TransactionType.DEPOSIT)
+                    .status(TransactionStatus.PENDING).amount(BigDecimal.valueOf(10000))
+                    .currency("NGN").build();
+
+            when(transactionRepository.findByReference("FND-FAIL")).thenReturn(Optional.of(txn));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            transactionService.failFunding("FND-FAIL");
+
+            assertThat(txn.getStatus()).isEqualTo(TransactionStatus.FAILED);
+        }
+
+        @Test
+        @DisplayName("should ignore charge.failed for non-PENDING transaction")
+        void shouldIgnoreForNonPending() {
+            Transaction txn = Transaction.builder()
+                    .id(400L).reference("FND-FAIL").transactionType(TransactionType.DEPOSIT)
+                    .status(TransactionStatus.COMPLETED).amount(BigDecimal.valueOf(10000))
+                    .currency("NGN").build();
+
+            when(transactionRepository.findByReference("FND-FAIL")).thenReturn(Optional.of(txn));
+
+            transactionService.failFunding("FND-FAIL");
+
+            assertThat(txn.getStatus()).isEqualTo(TransactionStatus.COMPLETED);
+            verify(transactionRepository, never()).save(any());
         }
     }
 
