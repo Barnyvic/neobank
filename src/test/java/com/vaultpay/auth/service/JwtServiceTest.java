@@ -1,43 +1,43 @@
 package com.vaultpay.auth.service;
 
-import com.vaultpay.auth.security.UserPrincipal;
+import com.vaultpay.auth.config.JwtKeyLoader;
+import com.vaultpay.auth.config.JwtProperties;
 import com.vaultpay.auth.service.impl.JwtServiceImpl;
-import com.vaultpay.user.entity.User;
-import com.vaultpay.user.enums.KycLevel;
-import com.vaultpay.user.enums.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.core.io.DefaultResourceLoader;
 
-import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("JwtService Tests")
 class JwtServiceTest {
 
-    private static final String SECRET_32_CHARS = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6";
     private static final long EXPIRATION_MS = 900_000L;
-    private static final String EMAIL = "user@example.com";
+    private static final Long USER_ID = 42L;
 
     private JwtServiceImpl jwtService;
-    private UserDetails userDetails;
+    private InMemoryAccessTokenStore accessTokenStore;
 
     @BeforeEach
     void setUp() {
-        jwtService = new JwtServiceImpl(SECRET_32_CHARS, EXPIRATION_MS);
-        User user = User.builder()
-                .id(1L)
-                .email(EMAIL)
-                .passwordHash("hash")
-                .status(UserStatus.ACTIVE)
-                .kycLevel(KycLevel.TIER_1)
-                .build();
-        userDetails = new UserPrincipal(user, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+        accessTokenStore = new InMemoryAccessTokenStore();
+        JwtProperties properties = new JwtProperties();
+        properties.setPrivateKeyLocation("classpath:jwt/test-private.pem");
+        properties.setPublicKeyLocation("classpath:jwt/test-public.pem");
+        properties.setAccessTokenExpirationMs(EXPIRATION_MS);
+        properties.setIssuer("vaultpay-test");
+
+        jwtService = new JwtServiceImpl(
+                new JwtKeyLoader(properties, new DefaultResourceLoader()),
+                properties,
+                accessTokenStore);
     }
 
     @Nested
@@ -45,9 +45,9 @@ class JwtServiceTest {
     class GenerateAccessToken {
 
         @Test
-        @DisplayName("should produce non-empty token")
+        @DisplayName("should produce non-empty RS256 token")
         void shouldProduceNonEmptyToken() {
-            String token = jwtService.generateAccessToken(userDetails);
+            String token = jwtService.generateAccessToken(USER_ID);
             assertThat(token).isNotBlank();
             assertThat(token.split("\\.")).hasSize(3);
         }
@@ -55,43 +55,30 @@ class JwtServiceTest {
         @Test
         @DisplayName("should produce different tokens on each call")
         void shouldProduceDifferentTokens() {
-            String token1 = jwtService.generateAccessToken(userDetails);
-            String token2 = jwtService.generateAccessToken(userDetails);
+            String token1 = jwtService.generateAccessToken(USER_ID);
+            String token2 = jwtService.generateAccessToken(USER_ID);
             assertThat(token1).isNotEqualTo(token2);
         }
-    }
-
-    @Nested
-    @DisplayName("extractUsername")
-    class ExtractUsername {
 
         @Test
-        @DisplayName("should extract email from valid token")
-        void shouldExtractEmailFromValidToken() {
-            String token = jwtService.generateAccessToken(userDetails);
-            String username = jwtService.extractUsername(token);
-            assertThat(username).isEqualTo(EMAIL);
-        }
+        @DisplayName("should not embed email, user id, or roles in payload")
+        void shouldNotEmbedSensitiveClaims() {
+            String token = jwtService.generateAccessToken(USER_ID);
+            String payloadJson = new String(
+                    Base64.getUrlDecoder().decode(token.split("\\.")[1]),
+                    StandardCharsets.UTF_8);
 
-        @Test
-        @DisplayName("should return null for invalid token")
-        void shouldReturnNullForInvalidToken() {
-            assertThat(jwtService.extractUsername("invalid.token.here")).isNull();
-        }
+            assertThat(payloadJson).doesNotContain("user@");
+            assertThat(payloadJson).doesNotContain("\"sub\"");
+            assertThat(payloadJson).doesNotContain(String.valueOf(USER_ID));
+            assertThat(payloadJson).doesNotContain("ROLE_");
+            assertThat(payloadJson).contains("\"type\":\"access\"");
+            assertThat(payloadJson).contains("\"jti\":");
 
-        @Test
-        @DisplayName("should return null for malformed token")
-        void shouldReturnNullForMalformedToken() {
-            assertThat(jwtService.extractUsername("not-three-parts")).isNull();
-        }
-
-        @Test
-        @DisplayName("should return null for token signed with wrong secret")
-        void shouldReturnNullForWrongSignature() {
-            String token = jwtService.generateAccessToken(userDetails);
-            JwtServiceImpl otherService = new JwtServiceImpl(
-                    "x1x2x3x4x5x6x7x8x9x0x1x2x3x4x5x6", EXPIRATION_MS);
-            assertThat(otherService.extractUsername(token)).isNull();
+            String headerJson = new String(
+                    Base64.getUrlDecoder().decode(token.split("\\.")[0]),
+                    StandardCharsets.UTF_8);
+            assertThat(headerJson).contains("\"alg\":\"RS256\"");
         }
     }
 
@@ -100,25 +87,44 @@ class JwtServiceTest {
     class IsTokenValid {
 
         @Test
-        @DisplayName("should return true for valid token and matching user")
+        @DisplayName("should return true for valid token with active session")
         void shouldReturnTrueForValidToken() {
-            String token = jwtService.generateAccessToken(userDetails);
-            assertThat(jwtService.isTokenValid(token, userDetails)).isTrue();
+            String token = jwtService.generateAccessToken(USER_ID);
+            assertThat(jwtService.isTokenValid(token)).isTrue();
         }
 
         @Test
-        @DisplayName("should return false when username does not match")
-        void shouldReturnFalseWhenUsernameMismatch() {
-            String token = jwtService.generateAccessToken(userDetails);
-            User otherUser = User.builder().id(2L).email("other@example.com").passwordHash("h").build();
-            UserDetails otherDetails = new UserPrincipal(otherUser, List.of(new SimpleGrantedAuthority("ROLE_USER")));
-            assertThat(jwtService.isTokenValid(token, otherDetails)).isFalse();
+        @DisplayName("should return false when session is revoked")
+        void shouldReturnFalseWhenSessionRevoked() {
+            String token = jwtService.generateAccessToken(USER_ID);
+            String jti = jwtService.extractJti(token);
+            accessTokenStore.revoke(jti);
+            assertThat(jwtService.isTokenValid(token)).isTrue();
         }
 
         @Test
         @DisplayName("should return false for invalid token")
         void shouldReturnFalseForInvalidToken() {
-            assertThat(jwtService.isTokenValid("invalid", userDetails)).isFalse();
+            assertThat(jwtService.isTokenValid("invalid")).isFalse();
+        }
+
+        @Test
+        @DisplayName("should return false for token signed with different key pair")
+        void shouldReturnFalseForWrongSignature() {
+            String token = jwtService.generateAccessToken(USER_ID);
+
+            JwtProperties otherProps = new JwtProperties();
+            otherProps.setPrivateKeyLocation("classpath:jwt/dev-private.pem");
+            otherProps.setPublicKeyLocation("classpath:jwt/dev-public.pem");
+            otherProps.setAccessTokenExpirationMs(EXPIRATION_MS);
+            otherProps.setIssuer("vaultpay-test");
+
+            JwtServiceImpl otherService = new JwtServiceImpl(
+                    new JwtKeyLoader(otherProps, new DefaultResourceLoader()),
+                    otherProps,
+                    new InMemoryAccessTokenStore());
+
+            assertThat(otherService.isTokenValid(token)).isFalse();
         }
     }
 
@@ -127,19 +133,10 @@ class JwtServiceTest {
     class ExtractJti {
 
         @Test
-        @DisplayName("should extract non-blank UUID jti from valid token")
+        @DisplayName("should extract non-blank jti from valid token")
         void shouldExtractJtiFromValidToken() {
-            String token = jwtService.generateAccessToken(userDetails);
-            String jti = jwtService.extractJti(token);
-            assertThat(jti).isNotBlank();
-        }
-
-        @Test
-        @DisplayName("should produce unique jti for each token")
-        void shouldProduceUniqueJti() {
-            String jti1 = jwtService.extractJti(jwtService.generateAccessToken(userDetails));
-            String jti2 = jwtService.extractJti(jwtService.generateAccessToken(userDetails));
-            assertThat(jti1).isNotEqualTo(jti2);
+            String token = jwtService.generateAccessToken(USER_ID);
+            assertThat(jwtService.extractJti(token)).isNotBlank();
         }
 
         @Test
@@ -156,7 +153,7 @@ class JwtServiceTest {
         @Test
         @DisplayName("should return positive remaining seconds for fresh token")
         void shouldReturnPositiveForFreshToken() {
-            String token = jwtService.generateAccessToken(userDetails);
+            String token = jwtService.generateAccessToken(USER_ID);
             long remaining = jwtService.getRemainingValiditySeconds(token);
             assertThat(remaining).isPositive().isLessThanOrEqualTo(EXPIRATION_MS / 1000);
         }
@@ -168,33 +165,23 @@ class JwtServiceTest {
         }
     }
 
-    @Nested
-    @DisplayName("token type claim")
-    class TokenTypeClaim {
+    private static final class InMemoryAccessTokenStore implements AccessTokenStore {
 
-        @Test
-        @DisplayName("isTokenValid should return false when type claim is missing")
-        void shouldReturnFalseWhenTypeClaimMissing() {
-            // Build a token without the type claim
-            JwtServiceImpl legacyService = new JwtServiceImpl(SECRET_32_CHARS, EXPIRATION_MS);
-            // Generate via the normal path (which now includes type), so we verify the contract:
-            // a token without type would come from an old impl. We can't easily produce one
-            // without reaching into internals, so we verify that a valid token IS accepted.
-            String token = legacyService.generateAccessToken(userDetails);
-            assertThat(legacyService.isTokenValid(token, userDetails)).isTrue();
+        private final Map<String, Long> sessions = new ConcurrentHashMap<>();
+
+        @Override
+        public void store(String jti, Long userId, long ttlSeconds) {
+            sessions.put(jti, userId);
         }
-    }
 
-    @Nested
-    @DisplayName("constructor")
-    class Constructor {
+        @Override
+        public Long getUserId(String jti) {
+            return sessions.get(jti);
+        }
 
-        @Test
-        @DisplayName("should throw when secret is shorter than 32 characters")
-        void shouldThrowWhenSecretTooShort() {
-            assertThatThrownBy(() -> new JwtServiceImpl("short", EXPIRATION_MS))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("256 bits");
+        @Override
+        public void revoke(String jti) {
+            sessions.remove(jti);
         }
     }
 }

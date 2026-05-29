@@ -5,6 +5,7 @@ import com.vaultpay.auth.dto.request.RegisterRequest;
 import com.vaultpay.auth.dto.response.AuthResponse;
 import com.vaultpay.auth.mapper.AuthMapper;
 import com.vaultpay.auth.security.UserPrincipal;
+import com.vaultpay.auth.service.AccessTokenStore;
 import com.vaultpay.auth.service.AuthService;
 import com.vaultpay.auth.service.JwtService;
 import com.vaultpay.auth.service.LoginAttemptService;
@@ -27,13 +28,9 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -46,8 +43,8 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenStore refreshTokenStore;
     private final LoginAttemptService loginAttemptService;
     private final TokenBlacklistService tokenBlacklistService;
+    private final AccessTokenStore accessTokenStore;
     private final WalletService walletService;
-    private final org.springframework.security.core.userdetails.UserDetailsService userDetailsService;
 
     @Value("${app.jwt.access-token-expiration-ms:900000}")
     private long accessTokenExpirationMs;
@@ -79,8 +76,7 @@ public class AuthServiceImpl implements AuthService {
 
         walletService.createWallet(user.getId(), new CreateWalletRequest("NGN"));
 
-        UserDetails userDetails = new UserPrincipal(user, List.of(new SimpleGrantedAuthority("ROLE_USER")));
-        String accessToken = jwtService.generateAccessToken(userDetails);
+        String accessToken = jwtService.generateAccessToken(user.getId());
         String refreshToken = refreshTokenStore.createToken(user.getId());
         long expiresIn = accessTokenExpirationMs / 1000;
 
@@ -104,11 +100,10 @@ public class AuthServiceImpl implements AuthService {
 
             loginAttemptService.recordSuccess(email);
 
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            UserPrincipal principal = (UserPrincipal) userDetails;
+            UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
             Long userId = principal.getUser().getId();
 
-            String accessToken = jwtService.generateAccessToken(userDetails);
+            String accessToken = jwtService.generateAccessToken(userId);
             String refreshToken = refreshTokenStore.createToken(userId);
             long expiresIn = accessTokenExpirationMs / 1000;
 
@@ -132,8 +127,7 @@ public class AuthServiceImpl implements AuthService {
         refreshTokenStore.revoke(refreshToken);
         String newRefreshToken = refreshTokenStore.createToken(user.getId());
 
-        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
-        String accessToken = jwtService.generateAccessToken(userDetails);
+        String accessToken = jwtService.generateAccessToken(user.getId());
         long expiresIn = accessTokenExpirationMs / 1000;
 
         return AuthMapper.toResponse(accessToken, newRefreshToken, expiresIn);
@@ -146,6 +140,7 @@ public class AuthServiceImpl implements AuthService {
             if (jti != null) {
                 long remaining = jwtService.getRemainingValiditySeconds(accessToken);
                 tokenBlacklistService.blacklist(jti, remaining);
+                accessTokenStore.revoke(jti);
             }
         }
         refreshTokenStore.revoke(refreshToken);

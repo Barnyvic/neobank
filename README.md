@@ -40,7 +40,7 @@ That design supports reconciliation, reversals, and future extraction of the led
 |-------|------------|
 | Runtime | Java 17, Spring Boot 3.2 |
 | API | REST, Springdoc OpenAPI (Swagger) |
-| Security | Spring Security, JWT access tokens, refresh tokens in **Redis** |
+| Security | Spring Security, JWT access tokens (RS256), refresh tokens in **Redis** |
 | Persistence | PostgreSQL 16, Spring Data JPA, Flyway migrations |
 | Cache / rate limits | **Redis** (wallet balance cache, login attempt counters, transfer throttle keys, refresh tokens) |
 | Payments | Paystack REST API + signed webhooks |
@@ -207,7 +207,7 @@ src/main/resources/
 
 ```bash
 cp .env.example .env
-# Set PAYSTACK_SECRET_KEY and JWT_SECRET in .env
+# Set PAYSTACK_SECRET_KEY and JWT key paths in .env
 docker-compose up -d
 ```
 
@@ -237,7 +237,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 | Variable | Purpose |
 |----------|---------|
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection |
-| `JWT_SECRET` | Signing key for access tokens (use a strong secret in production) |
+| `JWT_PRIVATE_KEY_LOCATION` / `JWT_PUBLIC_KEY_LOCATION` | RSA key pair for RS256 (see `scripts/generate-jwt-keys.sh`) |
 | `PAYSTACK_SECRET_KEY` | Paystack API + webhook HMAC verification |
 | `REDIS_HOST`, `REDIS_PORT` | Redis (set in Compose / `application.yml` for dev) |
 | `SERVER_PORT`, `SPRING_PROFILES_ACTIVE` | Server binding and profile |

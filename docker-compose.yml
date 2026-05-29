@@ -47,7 +47,8 @@ services:
       DB_PASSWORD: vaultpay
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_PRIVATE_KEY_LOCATION: classpath:jwt/dev-private.pem
+      JWT_PUBLIC_KEY_LOCATION: classpath:jwt/dev-public.pem
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-sk_test_xxxxx}
     ports:
       - "8080:8080"

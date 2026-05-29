@@ -38,4 +38,21 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         return new UserPrincipal(user, authorities);
     }
+
+    @Transactional(readOnly = true)
+    public UserDetails loadUserById(Long userId) throws UsernameNotFoundException {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + userId));
+
+        List<GrantedAuthority> authorities = userRoleRepository.findByUserIdWithRole(user.getId())
+                .stream()
+                .map(ur -> (GrantedAuthority) new SimpleGrantedAuthority(ur.getRole().getName()))
+                .toList();
+
+        if (authorities.isEmpty()) {
+            authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        }
+
+        return new UserPrincipal(user, authorities);
+    }
 }

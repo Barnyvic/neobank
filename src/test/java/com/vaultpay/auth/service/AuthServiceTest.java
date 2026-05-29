@@ -80,6 +80,9 @@ class AuthServiceTest {
     private TokenBlacklistService tokenBlacklistService;
 
     @Mock
+    private AccessTokenStore accessTokenStore;
+
+    @Mock
     private WalletService walletService;
 
     @InjectMocks
@@ -113,7 +116,7 @@ class AuthServiceTest {
                     .build();
             when(userRepository.save(any(User.class))).thenReturn(savedUser);
             when(passwordEncoder.encode(PASSWORD)).thenReturn("hashed");
-            when(jwtService.generateAccessToken(any())).thenReturn(ACCESS_TOKEN);
+            when(jwtService.generateAccessToken(USER_ID)).thenReturn(ACCESS_TOKEN);
             when(refreshTokenStore.createToken(USER_ID)).thenReturn(REFRESH_TOKEN);
 
             AuthResponse response = authService.register(request);
@@ -177,7 +180,7 @@ class AuthServiceTest {
             User savedUser = User.builder().id(USER_ID).email("user@example.com").build();
             when(userRepository.save(any(User.class))).thenReturn(savedUser);
             when(passwordEncoder.encode(any())).thenReturn("hashed");
-            when(jwtService.generateAccessToken(any())).thenReturn(ACCESS_TOKEN);
+            when(jwtService.generateAccessToken(USER_ID)).thenReturn(ACCESS_TOKEN);
             when(refreshTokenStore.createToken(USER_ID)).thenReturn(REFRESH_TOKEN);
 
             authService.register(request);
@@ -208,7 +211,7 @@ class AuthServiceTest {
             when(loginAttemptService.isLocked(EMAIL)).thenReturn(false);
             when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                     .thenReturn(auth);
-            when(jwtService.generateAccessToken(principal)).thenReturn(ACCESS_TOKEN);
+            when(jwtService.generateAccessToken(USER_ID)).thenReturn(ACCESS_TOKEN);
             when(refreshTokenStore.createToken(USER_ID)).thenReturn(REFRESH_TOKEN);
 
             AuthResponse response = authService.login(request);
@@ -229,7 +232,7 @@ class AuthServiceTest {
             when(loginAttemptService.isLocked(EMAIL)).thenReturn(false);
             when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                     .thenReturn(auth);
-            when(jwtService.generateAccessToken(any())).thenReturn(ACCESS_TOKEN);
+            when(jwtService.generateAccessToken(USER_ID)).thenReturn(ACCESS_TOKEN);
             when(refreshTokenStore.createToken(USER_ID)).thenReturn(REFRESH_TOKEN);
 
             authService.login(request);
@@ -328,6 +331,7 @@ class AuthServiceTest {
             authService.logout(ACCESS_TOKEN, REFRESH_TOKEN);
 
             verify(tokenBlacklistService).blacklist(jti, 500L);
+            verify(accessTokenStore).revoke(jti);
             verify(refreshTokenStore).revoke(REFRESH_TOKEN);
         }
 

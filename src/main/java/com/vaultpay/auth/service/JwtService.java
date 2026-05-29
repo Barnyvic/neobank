@@ -1,16 +1,11 @@
 package com.vaultpay.auth.service;
 
-import org.springframework.security.core.userdetails.UserDetails;
-
 public interface JwtService {
-
-    String generateAccessToken(UserDetails userDetails);
-
-    String extractUsername(String token);
+    String generateAccessToken(Long userId);
 
     String extractJti(String token);
 
-    boolean isTokenValid(String token, UserDetails userDetails);
+    boolean isTokenValid(String token);
 
     long getRemainingValiditySeconds(String token);
 }

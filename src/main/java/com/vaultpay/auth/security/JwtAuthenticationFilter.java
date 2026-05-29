@@ -1,5 +1,6 @@
 package com.vaultpay.auth.security;
 
+import com.vaultpay.auth.service.AccessTokenStore;
 import com.vaultpay.auth.service.JwtService;
 import com.vaultpay.auth.service.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
@@ -12,7 +13,6 @@ import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -29,7 +29,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtService jwtService;
-    private final UserDetailsService userDetailsService;
+    private final CustomUserDetailsService userDetailsService;
+    private final AccessTokenStore accessTokenStore;
     private final TokenBlacklistService tokenBlacklistService;
 
     @Override
@@ -39,7 +40,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain) throws ServletException, IOException {
         try {
             String token = extractTokenFromRequest(request);
-            if (StringUtils.hasText(token)) {
+            if (StringUtils.hasText(token) && jwtService.isTokenValid(token)) {
                 String jti = jwtService.extractJti(token);
                 if (jti != null && tokenBlacklistService.isBlacklisted(jti)) {
                     log.warn("Blacklisted token used for [{} {}]",
@@ -47,18 +48,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     filterChain.doFilter(request, response);
                     return;
                 }
-                String username = jwtService.extractUsername(token);
-                if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                    UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                    if (jwtService.isTokenValid(token, userDetails)) {
-                        UsernamePasswordAuthenticationToken authToken =
-                                new UsernamePasswordAuthenticationToken(
-                                        userDetails,
-                                        null,
-                                        userDetails.getAuthorities());
-                        authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                        SecurityContextHolder.getContext().setAuthentication(authToken);
-                    }
+                Long userId = jti != null ? accessTokenStore.getUserId(jti) : null;
+                if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                    UserDetails userDetails = userDetailsService.loadUserById(userId);
+                    UsernamePasswordAuthenticationToken authToken =
+                            new UsernamePasswordAuthenticationToken(
+                                    userDetails,
+                                    null,
+                                    userDetails.getAuthorities());
+                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
             }
         } catch (Exception e) {
