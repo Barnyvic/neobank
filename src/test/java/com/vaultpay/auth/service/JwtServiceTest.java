@@ -114,8 +114,7 @@ class JwtServiceTest {
             String token = jwtService.generateAccessToken(USER_ID);
 
             JwtProperties otherProps = new JwtProperties();
-            otherProps.setPrivateKeyLocation("classpath:jwt/dev-private.pem");
-            otherProps.setPublicKeyLocation("classpath:jwt/dev-public.pem");
+            otherProps.setPrivateKeyLocation("classpath:jwt/other-private.pem");
             otherProps.setAccessTokenExpirationMs(EXPIRATION_MS);
             otherProps.setIssuer("vaultpay-test");
 

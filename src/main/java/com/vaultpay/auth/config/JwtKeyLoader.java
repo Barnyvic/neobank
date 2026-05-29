@@ -13,6 +13,7 @@ import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.RSAPublicKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
@@ -28,16 +29,19 @@ public class JwtKeyLoader {
     }
 
     public RSAPrivateKey loadPrivateKey() {
-        String pem = resolvePem(properties.getPrivateKey(), properties.getPrivateKeyLocation(), "private");
+        String pem = resolvePem(properties.getPrivateKey(), properties.getPrivateKeyLocation());
         return parsePrivateKey(pem);
     }
 
     public RSAPublicKey loadPublicKey() {
-        String pem = resolvePem(properties.getPublicKey(), properties.getPublicKeyLocation(), "public");
-        return parsePublicKey(pem);
+        if (StringUtils.hasText(properties.getPublicKey()) || StringUtils.hasText(properties.getPublicKeyLocation())) {
+            String pem = resolvePem(properties.getPublicKey(), properties.getPublicKeyLocation());
+            return parsePublicKey(pem);
+        }
+        return derivePublicKey(loadPrivateKey());
     }
 
-    private String resolvePem(String inline, String location, String label) {
+    private String resolvePem(String inline, String location) {
         if (StringUtils.hasText(inline)) {
             return inline.replace("\\n", "\n");
         }
@@ -46,11 +50,11 @@ public class JwtKeyLoader {
                 Resource resource = resourceLoader.getResource(location);
                 return StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
             } catch (IOException e) {
-                throw new IllegalStateException("Failed to read JWT " + label + " key from " + location, e);
+                throw new IllegalStateException("Failed to read JWT private key from " + location, e);
             }
         }
         throw new IllegalStateException(
-                "JWT " + label + " key not configured. Set app.jwt." + label + "-key or app.jwt." + label + "-key-location");
+                "JWT private key not configured. Set JWT_PRIVATE_KEY or JWT_PRIVATE_KEY_LOCATION");
     }
 
     static RSAPrivateKey parsePrivateKey(String pem) {
@@ -70,6 +74,16 @@ public class JwtKeyLoader {
             return (RSAPublicKey) factory.generatePublic(new X509EncodedKeySpec(encoded));
         } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
             throw new IllegalStateException("Invalid JWT public key", e);
+        }
+    }
+
+    static RSAPublicKey derivePublicKey(RSAPrivateKey privateKey) {
+        try {
+            var privateSpec = KeyFactory.getInstance("RSA").getKeySpec(privateKey, java.security.spec.RSAPrivateCrtKeySpec.class);
+            var publicSpec = new RSAPublicKeySpec(privateSpec.getModulus(), privateSpec.getPublicExponent());
+            return (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(publicSpec);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new IllegalStateException("Could not derive public key from private key", e);
         }
     }
 

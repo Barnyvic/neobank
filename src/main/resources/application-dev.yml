@@ -1,8 +1,3 @@
-app:
-  jwt:
-    private-key-location: classpath:jwt/dev-private.pem
-    public-key-location: classpath:jwt/dev-public.pem
-
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/vaultpay

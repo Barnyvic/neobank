@@ -237,7 +237,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 | Variable | Purpose |
 |----------|---------|
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection |
-| `JWT_PRIVATE_KEY_LOCATION` / `JWT_PUBLIC_KEY_LOCATION` | RSA key pair for RS256 (see `scripts/generate-jwt-keys.sh`) |
+| `JWT_PRIVATE_KEY` or `JWT_PRIVATE_KEY_LOCATION` | RSA private key for RS256 signing (public key derived at runtime; run `scripts/generate-jwt-keys.sh`) |
 | `PAYSTACK_SECRET_KEY` | Paystack API + webhook HMAC verification |
 | `REDIS_HOST`, `REDIS_PORT` | Redis (set in Compose / `application.yml` for dev) |
 | `SERVER_PORT`, `SPRING_PROFILES_ACTIVE` | Server binding and profile |
