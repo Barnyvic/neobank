@@ -63,6 +63,7 @@ public class PaystackWebhookController {
             }
         } catch (Exception e) {
             log.error("Error processing Paystack webhook", e);
+            return ResponseEntity.internalServerError().body("Processing error");
         }
 
         return ResponseEntity.ok("OK");

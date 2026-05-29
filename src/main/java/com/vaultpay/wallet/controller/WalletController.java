@@ -46,28 +46,32 @@ public class WalletController {
     @GetMapping("/{walletId}")
     @Operation(summary = "Get wallet by ID")
     public ResponseEntity<ApiResponse<WalletResponse>> getWallet(@PathVariable Long walletId) {
-        WalletResponse response = walletService.getWalletById(walletId);
+        Long userId = getCurrentUserId();
+        WalletResponse response = walletService.getWalletById(walletId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     @GetMapping("/{walletId}/balance")
     @Operation(summary = "Get wallet balance")
     public ResponseEntity<ApiResponse<BalanceResponse>> getBalance(@PathVariable Long walletId) {
-        BalanceResponse response = walletService.getBalance(walletId);
+        Long userId = getCurrentUserId();
+        BalanceResponse response = walletService.getBalance(walletId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     @PostMapping("/{walletId}/freeze")
     @Operation(summary = "Freeze a wallet")
     public ResponseEntity<ApiResponse<Void>> freezeWallet(@PathVariable Long walletId) {
-        walletService.freezeWallet(walletId);
+        Long userId = getCurrentUserId();
+        walletService.freezeWallet(walletId, userId);
         return ResponseEntity.ok(ApiResponse.success("Wallet frozen", null));
     }
 
     @PostMapping("/{walletId}/unfreeze")
     @Operation(summary = "Unfreeze a wallet")
     public ResponseEntity<ApiResponse<Void>> unfreezeWallet(@PathVariable Long walletId) {
-        walletService.unfreezeWallet(walletId);
+        Long userId = getCurrentUserId();
+        walletService.unfreezeWallet(walletId, userId);
         return ResponseEntity.ok(ApiResponse.success("Wallet unfrozen", null));
     }
 

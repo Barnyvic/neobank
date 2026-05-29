@@ -17,9 +17,9 @@ public interface TransactionService {
 
     TransactionResponse withdraw(Long userId, WithdrawRequest request);
 
-    TransactionResponse getTransaction(String reference);
+    TransactionResponse getTransaction(String reference, Long userId);
 
-    Page<TransactionResponse> getTransactionHistory(Long walletId, Pageable pageable);
+    Page<TransactionResponse> getTransactionHistory(Long walletId, Long userId, Pageable pageable);
 
     TransactionResponse completeWithdrawal(String reference);
 

@@ -17,6 +17,7 @@ public record RegisterRequest(
         String email,
         @NotBlank(message = "Phone number is required")
         @Size(min = 10, max = 20)
+        @Pattern(regexp = "^\\+?\\d{10,15}$", message = "Phone number must contain only digits, optionally prefixed with +")
         String phoneNumber,
         @NotBlank(message = "Password is required")
         @Size(min = 8, max = 100, message = "Password must be between 8 and 100 characters")

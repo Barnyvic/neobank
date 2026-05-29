@@ -100,12 +100,13 @@ class WalletServiceTest {
     class GetWalletById {
 
         @Test
-        @DisplayName("should return wallet when found")
+        @DisplayName("should return wallet when found and owned by user")
         void shouldReturnWallet() {
-            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, null);
+            User user = User.builder().id(USER_ID).build();
+            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, user);
             when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
 
-            WalletResponse response = walletService.getWalletById(1L);
+            WalletResponse response = walletService.getWalletById(1L, USER_ID);
 
             assertThat(response.id()).isEqualTo(1L);
         }
@@ -115,8 +116,20 @@ class WalletServiceTest {
         void shouldThrowWhenNotFound() {
             when(walletRepository.findById(99L)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> walletService.getWalletById(99L))
+            assertThatThrownBy(() -> walletService.getWalletById(99L, USER_ID))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("should throw when wallet does not belong to user")
+        void shouldThrowWhenNotOwned() {
+            User otherUser = User.builder().id(999L).build();
+            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, otherUser);
+            when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
+
+            assertThatThrownBy(() -> walletService.getWalletById(1L, USER_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("does not belong");
         }
     }
 
@@ -144,14 +157,15 @@ class WalletServiceTest {
         @Test
         @DisplayName("should return balance from ledger account")
         void shouldReturnBalance() {
-            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, null);
+            User user = User.builder().id(USER_ID).build();
+            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, user);
             LedgerAccount ledgerAccount = LedgerAccount.builder()
                     .id(10L).accountName("WALLET:1234567890")
                     .balance(BigDecimal.valueOf(5000)).wallet(wallet).build();
             when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
             when(ledgerAccountRepository.findByWalletId(1L)).thenReturn(Optional.of(ledgerAccount));
 
-            BalanceResponse response = walletService.getBalance(1L);
+            BalanceResponse response = walletService.getBalance(1L, USER_ID);
 
             assertThat(response.availableBalance()).isEqualByComparingTo(BigDecimal.valueOf(5000));
         }
@@ -164,10 +178,11 @@ class WalletServiceTest {
         @Test
         @DisplayName("should freeze an active wallet")
         void shouldFreezeWallet() {
-            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, null);
+            User user = User.builder().id(USER_ID).build();
+            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, user);
             when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
 
-            walletService.freezeWallet(1L);
+            walletService.freezeWallet(1L, USER_ID);
 
             assertThat(wallet.getStatus()).isEqualTo(WalletStatus.FROZEN);
             verify(walletRepository).save(wallet);
@@ -176,10 +191,11 @@ class WalletServiceTest {
         @Test
         @DisplayName("should throw when freezing already frozen wallet")
         void shouldThrowWhenAlreadyFrozen() {
-            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.FROZEN, null);
+            User user = User.builder().id(USER_ID).build();
+            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.FROZEN, user);
             when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
 
-            assertThatThrownBy(() -> walletService.freezeWallet(1L))
+            assertThatThrownBy(() -> walletService.freezeWallet(1L, USER_ID))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("already frozen");
         }
@@ -192,10 +208,11 @@ class WalletServiceTest {
         @Test
         @DisplayName("should unfreeze a frozen wallet")
         void shouldUnfreezeWallet() {
-            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.FROZEN, null);
+            User user = User.builder().id(USER_ID).build();
+            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.FROZEN, user);
             when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
 
-            walletService.unfreezeWallet(1L);
+            walletService.unfreezeWallet(1L, USER_ID);
 
             assertThat(wallet.getStatus()).isEqualTo(WalletStatus.ACTIVE);
             verify(walletRepository).save(wallet);
@@ -204,10 +221,11 @@ class WalletServiceTest {
         @Test
         @DisplayName("should throw when unfreezing non-frozen wallet")
         void shouldThrowWhenNotFrozen() {
-            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, null);
+            User user = User.builder().id(USER_ID).build();
+            Wallet wallet = buildWallet(1L, "1234567890", Currency.NGN, WalletStatus.ACTIVE, user);
             when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
 
-            assertThatThrownBy(() -> walletService.unfreezeWallet(1L))
+            assertThatThrownBy(() -> walletService.unfreezeWallet(1L, USER_ID))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("not frozen");
         }

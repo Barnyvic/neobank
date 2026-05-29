@@ -83,9 +83,10 @@ public class WalletServiceImpl implements WalletService {
     @Override
     @Transactional(readOnly = true)
     @Cacheable(value = WALLET_BY_ID, key = "#walletId")
-    public WalletResponse getWalletById(Long walletId) {
+    public WalletResponse getWalletById(Long walletId, Long userId) {
         Wallet wallet = walletRepository.findById(walletId)
                 .orElseThrow(() -> new ResourceNotFoundException("Wallet", walletId.toString()));
+        assertOwnership(wallet, userId);
         return WalletResponse.from(wallet);
     }
 
@@ -101,9 +102,10 @@ public class WalletServiceImpl implements WalletService {
     @Override
     @Transactional(readOnly = true)
     @Cacheable(value = WALLET_BALANCE, key = "#walletId")
-    public BalanceResponse getBalance(Long walletId) {
+    public BalanceResponse getBalance(Long walletId, Long userId) {
         Wallet wallet = walletRepository.findById(walletId)
                 .orElseThrow(() -> new ResourceNotFoundException("Wallet", walletId.toString()));
+        assertOwnership(wallet, userId);
         LedgerAccount ledgerAccount = ledgerAccountRepository.findByWalletId(walletId)
                 .orElseThrow(() -> new ResourceNotFoundException("LedgerAccount", walletId.toString()));
         return BalanceResponse.from(wallet, ledgerAccount);
@@ -115,9 +117,10 @@ public class WalletServiceImpl implements WalletService {
             @CacheEvict(value = WALLET_BY_ID, key = "#walletId"),
             @CacheEvict(value = WALLET_BALANCE, key = "#walletId")
     })
-    public void freezeWallet(Long walletId) {
+    public void freezeWallet(Long walletId, Long userId) {
         Wallet wallet = walletRepository.findById(walletId)
                 .orElseThrow(() -> new ResourceNotFoundException("Wallet", walletId.toString()));
+        assertOwnership(wallet, userId);
 
         if (wallet.getStatus() == WalletStatus.FROZEN) {
             throw new BusinessException("Wallet is already frozen", HttpStatus.CONFLICT, ErrorCode.CONFLICT);
@@ -134,9 +137,10 @@ public class WalletServiceImpl implements WalletService {
             @CacheEvict(value = WALLET_BY_ID, key = "#walletId"),
             @CacheEvict(value = WALLET_BALANCE, key = "#walletId")
     })
-    public void unfreezeWallet(Long walletId) {
+    public void unfreezeWallet(Long walletId, Long userId) {
         Wallet wallet = walletRepository.findById(walletId)
                 .orElseThrow(() -> new ResourceNotFoundException("Wallet", walletId.toString()));
+        assertOwnership(wallet, userId);
 
         if (wallet.getStatus() != WalletStatus.FROZEN) {
             throw new BusinessException("Wallet is not frozen", HttpStatus.CONFLICT, ErrorCode.CONFLICT);
@@ -145,6 +149,12 @@ public class WalletServiceImpl implements WalletService {
         wallet.setStatus(WalletStatus.ACTIVE);
         walletRepository.save(wallet);
         log.debug("Unfroze wallet {}", walletId);
+    }
+
+    private void assertOwnership(Wallet wallet, Long userId) {
+        if (!wallet.getUser().getId().equals(userId)) {
+            throw new BusinessException("Wallet does not belong to user", HttpStatus.FORBIDDEN, ErrorCode.UNAUTHORIZED);
+        }
     }
 
     private String generateUniqueWalletNumber() {

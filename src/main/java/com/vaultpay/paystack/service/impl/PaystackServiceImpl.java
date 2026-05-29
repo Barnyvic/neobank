@@ -14,6 +14,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @Slf4j
 @Service
@@ -73,8 +74,8 @@ public class PaystackServiceImpl implements PaystackService {
                     paystackConfig.getSecretKey().getBytes(StandardCharsets.UTF_8), "HmacSHA512");
             mac.init(secretKey);
             byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            String computed = bytesToHex(hash);
-            return computed.equals(signature);
+            byte[] signatureBytes = hexToBytes(signature);
+            return MessageDigest.isEqual(hash, signatureBytes);
         } catch (Exception e) {
             log.error("Webhook signature verification failed: {}", e.getMessage());
             return false;
@@ -141,11 +142,13 @@ public class PaystackServiceImpl implements PaystackService {
         return headers;
     }
 
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b));
+    private static byte[] hexToBytes(String hex) {
+        int len = hex.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
+                    + Character.digit(hex.charAt(i + 1), 16));
         }
-        return sb.toString();
+        return data;
     }
 }

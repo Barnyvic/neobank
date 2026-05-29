@@ -31,6 +31,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -46,11 +47,13 @@ public class AuthServiceImpl implements AuthService {
     private final LoginAttemptService loginAttemptService;
     private final TokenBlacklistService tokenBlacklistService;
     private final WalletService walletService;
+    private final org.springframework.security.core.userdetails.UserDetailsService userDetailsService;
 
     @Value("${app.jwt.access-token-expiration-ms:900000}")
     private long accessTokenExpirationMs;
 
     @Override
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
         String email = request.email().trim().toLowerCase();
         String phone = request.phoneNumber().trim();
@@ -129,7 +132,7 @@ public class AuthServiceImpl implements AuthService {
         refreshTokenStore.revoke(refreshToken);
         String newRefreshToken = refreshTokenStore.createToken(user.getId());
 
-        UserDetails userDetails = new UserPrincipal(user, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
         String accessToken = jwtService.generateAccessToken(userDetails);
         long expiresIn = accessTokenExpirationMs / 1000;
 

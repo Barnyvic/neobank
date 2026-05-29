@@ -312,15 +312,17 @@ class TransactionServiceTest {
     class GetTransaction {
 
         @Test
-        @DisplayName("should return transaction by reference")
+        @DisplayName("should return transaction by reference when user is involved")
         void shouldReturnByReference() {
+            User user = User.builder().id(USER_ID).build();
+            Wallet sourceWallet = buildWallet(1L, "1111111111", WalletStatus.ACTIVE, user, BigDecimal.ZERO);
             Transaction txn = Transaction.builder()
                     .id(1L).reference("TRF-001").transactionType(TransactionType.TRANSFER)
                     .status(TransactionStatus.COMPLETED).amount(BigDecimal.valueOf(500))
-                    .currency("NGN").build();
+                    .currency("NGN").sourceWallet(sourceWallet).build();
             when(transactionRepository.findByReference("TRF-001")).thenReturn(Optional.of(txn));
 
-            TransactionResponse response = transactionService.getTransaction("TRF-001");
+            TransactionResponse response = transactionService.getTransaction("TRF-001", USER_ID);
 
             assertThat(response.reference()).isEqualTo("TRF-001");
         }
@@ -330,8 +332,24 @@ class TransactionServiceTest {
         void shouldThrowWhenNotFound() {
             when(transactionRepository.findByReference("INVALID")).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> transactionService.getTransaction("INVALID"))
+            assertThatThrownBy(() -> transactionService.getTransaction("INVALID", USER_ID))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("should throw when user is not involved in transaction")
+        void shouldThrowWhenNotOwned() {
+            User otherUser = User.builder().id(999L).build();
+            Wallet otherWallet = buildWallet(1L, "1111111111", WalletStatus.ACTIVE, otherUser, BigDecimal.ZERO);
+            Transaction txn = Transaction.builder()
+                    .id(1L).reference("TRF-001").transactionType(TransactionType.TRANSFER)
+                    .status(TransactionStatus.COMPLETED).amount(BigDecimal.valueOf(500))
+                    .currency("NGN").sourceWallet(otherWallet).build();
+            when(transactionRepository.findByReference("TRF-001")).thenReturn(Optional.of(txn));
+
+            assertThatThrownBy(() -> transactionService.getTransaction("TRF-001", USER_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("does not belong");
         }
     }
 

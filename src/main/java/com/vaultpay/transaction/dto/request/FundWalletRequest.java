@@ -2,11 +2,13 @@ package com.vaultpay.transaction.dto.request;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
 
 public record FundWalletRequest(
         @NotNull(message = "Wallet ID is required")
+        @Positive(message = "Wallet ID must be positive")
         Long walletId,
 
         @NotNull(message = "Amount is required")

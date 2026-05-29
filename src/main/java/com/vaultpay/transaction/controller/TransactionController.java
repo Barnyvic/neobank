@@ -54,7 +54,8 @@ public class TransactionController {
     @GetMapping("/{reference}")
     @Operation(summary = "Get transaction by reference")
     public ResponseEntity<ApiResponse<TransactionResponse>> getTransaction(@PathVariable String reference) {
-        TransactionResponse response = transactionService.getTransaction(reference);
+        Long userId = getCurrentUserId();
+        TransactionResponse response = transactionService.getTransaction(reference, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -62,7 +63,8 @@ public class TransactionController {
     @Operation(summary = "Get transaction history for a wallet")
     public ResponseEntity<ApiResponse<Page<TransactionResponse>>> getHistory(
             @PathVariable Long walletId, Pageable pageable) {
-        Page<TransactionResponse> history = transactionService.getTransactionHistory(walletId, pageable);
+        Long userId = getCurrentUserId();
+        Page<TransactionResponse> history = transactionService.getTransactionHistory(walletId, userId, pageable);
         return ResponseEntity.ok(ApiResponse.success(history));
     }
 

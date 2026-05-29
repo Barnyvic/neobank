@@ -10,13 +10,13 @@ public interface WalletService {
 
     WalletResponse createWallet(Long userId, CreateWalletRequest request);
 
-    WalletResponse getWalletById(Long walletId);
+    WalletResponse getWalletById(Long walletId, Long userId);
 
     List<WalletResponse> getWalletsByUserId(Long userId);
 
-    BalanceResponse getBalance(Long walletId);
+    BalanceResponse getBalance(Long walletId, Long userId);
 
-    void freezeWallet(Long walletId);
+    void freezeWallet(Long walletId, Long userId);
 
-    void unfreezeWallet(Long walletId);
+    void unfreezeWallet(Long walletId, Long userId);
 }

@@ -261,7 +261,8 @@ public class TransactionServiceImpl implements TransactionService {
             LedgerAccount paystackAccount = ledgerService.getOrCreateSystemAccount(PAYSTACK_SYSTEM_ACCOUNT);
 
             String reference = generate("WTH");
-            String description = "Withdrawal to bank " + request.bankCode() + " - " + request.accountNumber();
+            String maskedAccount = maskAccountNumber(request.accountNumber());
+            String description = "Withdrawal to bank " + request.bankCode() + " - " + maskedAccount;
 
             JournalEntry journal = ledgerService.createWithdrawalEntry(
                     userAccount, paystackAccount, request.amount(), reference, description);
@@ -357,16 +358,19 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = TRANSACTION_BY_REF, key = "#reference")
-    public TransactionResponse getTransaction(String reference) {
+    public TransactionResponse getTransaction(String reference, Long userId) {
         Transaction transaction = transactionRepository.findByReference(reference)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction", reference));
+        assertTransactionAccess(transaction, userId);
         return TransactionResponse.from(transaction);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<TransactionResponse> getTransactionHistory(Long walletId, Pageable pageable) {
+    public Page<TransactionResponse> getTransactionHistory(Long walletId, Long userId, Pageable pageable) {
+        Wallet wallet = walletRepository.findById(walletId)
+                .orElseThrow(() -> new ResourceNotFoundException("Wallet", walletId.toString()));
+        validateWalletOwnership(wallet, userId);
         return transactionRepository
                 .findBySourceWalletIdOrDestWalletIdOrderByCreatedAtDesc(walletId, walletId, pageable)
                 .map(TransactionResponse::from);
@@ -388,10 +392,27 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
+    private void assertTransactionAccess(Transaction transaction, Long userId) {
+        boolean isSource = transaction.getSourceWallet() != null
+                && transaction.getSourceWallet().getUser().getId().equals(userId);
+        boolean isDest = transaction.getDestWallet() != null
+                && transaction.getDestWallet().getUser().getId().equals(userId);
+        if (!isSource && !isDest) {
+            throw new BusinessException("Transaction does not belong to user", HttpStatus.FORBIDDEN, ErrorCode.UNAUTHORIZED);
+        }
+    }
+
     private void validateWalletOwnership(Wallet wallet, Long userId) {
         if (!wallet.getUser().getId().equals(userId)) {
             throw new BusinessException("Wallet does not belong to user", HttpStatus.FORBIDDEN, ErrorCode.UNAUTHORIZED);
         }
+    }
+
+    private static String maskAccountNumber(String accountNumber) {
+        if (accountNumber == null || accountNumber.length() <= 4) {
+            return "****";
+        }
+        return "*".repeat(accountNumber.length() - 4) + accountNumber.substring(accountNumber.length() - 4);
     }
 
     private String toJson(Map<String, String> data) {
