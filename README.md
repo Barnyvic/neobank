@@ -151,6 +151,46 @@ Interactive docs when running: [Swagger UI](http://localhost:8080/swagger-ui.htm
 
 ---
 
+## Security
+
+### Already in place
+
+| Area | What we do |
+|------|------------|
+| **SQL injection** | Spring Data JPA / Hibernate with **parameterized** `@Query` bindings (`:id`) — no string-concatenated SQL. Avoid native queries with user input. |
+| **Authentication** | RS256 JWT (minimal claims), Redis-backed sessions, refresh token rotation, logout blacklist. |
+| **Passwords & PINs** | BCrypt hashing; login / PIN attempt lockouts (Redis). |
+| **Input validation** | `spring-boot-starter-validation` + `@Valid` on request DTOs (`@Email`, `@Size`, `@Pattern`, etc.). |
+| **Rate limiting** | Bucket4j filter on public, auth, and login routes. |
+| **Paystack webhooks** | HMAC signature verification before any state change. |
+| **API errors** | No stack traces or internal messages in HTTP responses (`server.error.include-*: never`). |
+| **CSRF** | Disabled intentionally — stateless JWT API (no cookie session). |
+| **Headers** | HSTS, `X-Content-Type-Options`, frame deny, referrer policy, CSP, XSS filter. |
+| **CORS** | Configurable allowed origins (`CORS_ALLOWED_ORIGINS`) for `/api/**`. |
+| **Request size** | Tomcat post body capped at 1MB; multipart uploads disabled. |
+
+### CORS configuration
+
+Set allowed frontend origins in `.env`:
+
+```bash
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://your-app.example.com
+```
+
+Use **exact origins** (scheme + host + port), not `*` when `allow-credentials` is true.
+
+### Production checklist (ops / infra)
+
+- TLS termination at load balancer or reverse proxy (HSTS assumes HTTPS).
+- Strong `JWT_PRIVATE_KEY`, `PAYSTACK_SECRET_KEY`, DB credentials via secrets manager.
+- Restrict Swagger/actuator in production (`application-prod.yml` already disables Swagger).
+- WAF / DDoS protection in front of the API.
+- Dependency scanning (`mvn dependency-check` or GitHub Dependabot).
+- Audit logs (`audit_log` table + interceptor) for sensitive actions.
+- Never log access tokens, refresh tokens, PINs, or full card/account numbers.
+
+---
+
 ## Resilience and safety
 
 | Mechanism | Purpose |
@@ -238,6 +278,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 |----------|---------|
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection |
 | `JWT_PRIVATE_KEY` or `JWT_PRIVATE_KEY_LOCATION` | RSA private key for RS256 signing (public key derived at runtime; run `scripts/generate-jwt-keys.sh`) |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API |
 | `PAYSTACK_SECRET_KEY` | Paystack API + webhook HMAC verification |
 | `REDIS_HOST`, `REDIS_PORT` | Redis (set in Compose / `application.yml` for dev) |
 | `SERVER_PORT`, `SPRING_PROFILES_ACTIVE` | Server binding and profile |
