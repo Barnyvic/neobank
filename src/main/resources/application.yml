@@ -92,6 +92,15 @@ app:
       max-attempts: 5
       lockout-minutes: 30
 
+  fraud:
+    enabled: true
+    max-single-transaction: 5000000
+    max-daily-outbound: 10000000
+    max-transactions-per-hour: 20
+    max-transactions-per-day: 50
+    new-recipient-review-threshold: 500000
+    large-withdrawal-review-threshold: 1000000
+
 springdoc:
   api-docs:
     path: /api-docs

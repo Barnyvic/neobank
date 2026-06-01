@@ -22,6 +22,8 @@ import com.vaultpay.transaction.entity.Transaction;
 import com.vaultpay.transaction.enums.TransactionStatus;
 import com.vaultpay.transaction.enums.TransactionType;
 import com.vaultpay.transaction.repository.TransactionRepository;
+import com.vaultpay.fraud.dto.FraudCheckContext;
+import com.vaultpay.fraud.service.FraudDetectionService;
 import com.vaultpay.transaction.service.TransactionLockService;
 import com.vaultpay.transaction.service.TransactionService;
 import com.vaultpay.transaction.service.TransactionThrottleService;
@@ -63,6 +65,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final UserService userService;
     private final PaystackService paystackService;
     private final TransactionThrottleService throttleService;
+    private final FraudDetectionService fraudDetectionService;
     private final TransactionLockService lockService;
     private final WalletCacheEvictionService walletCacheEvictionService;
     private final ApplicationEventPublisher eventPublisher;
@@ -94,6 +97,9 @@ public class TransactionServiceImpl implements TransactionService {
         if (sourceWallet.getId().equals(destWallet.getId())) {
             throw new BusinessException("Cannot transfer to the same wallet", HttpStatus.BAD_REQUEST);
         }
+
+        fraudDetectionService.evaluateOrThrow(FraudCheckContext.forTransfer(
+                userId, request.amount(), sourceWallet.getCurrency().name(), request.recipientWalletNumber()));
 
         if (!throttleService.checkAndMark(userId, request.amount(), request.recipientWalletNumber())) {
             throw new BusinessException(
@@ -166,6 +172,9 @@ public class TransactionServiceImpl implements TransactionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Wallet", request.walletId().toString()));
         validateWalletActive(wallet, "Funding target");
         validateWalletOwnership(wallet, userId);
+
+        fraudDetectionService.evaluateOrThrow(FraudCheckContext.forDeposit(
+                userId, wallet.getId(), request.amount(), wallet.getCurrency().name()));
 
         String reference = generate("FND");
 
@@ -241,6 +250,10 @@ public class TransactionServiceImpl implements TransactionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Wallet", request.walletId().toString()));
         validateWalletActive(wallet, "Withdrawal source");
         validateWalletOwnership(wallet, userId);
+
+        fraudDetectionService.evaluateOrThrow(FraudCheckContext.forWithdrawal(
+                userId, wallet.getId(), request.amount(), wallet.getCurrency().name(),
+                request.bankCode(), request.accountNumber()));
 
         if (!lockService.acquireLock(userId, wallet.getId())) {
             throw new BusinessException(

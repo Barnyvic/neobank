@@ -102,6 +102,7 @@ That design supports reconciliation, reversals, and future extraction of the led
 | **ledger** | Post journal entries, enforce debits = credits, update account balances under lock, sync `Wallet.balance`. |
 | **transaction** | Transfer, fund, withdraw, history; idempotency; wallet locks; throttle; funding completion from webhooks. |
 | **paystack** | HTTP client to Paystack (resilient), webhook signature verification. |
+| **fraud** | Rule-based checks on transfers, withdrawals, and deposits; persisted alerts for admin review. |
 | **common** | `ApiResponse`, exceptions, audit, reference generation, cache config, shared events. |
 
 ### Domain events
@@ -128,6 +129,7 @@ Flyway migrations under `src/main/resources/db/migration/`:
 | V5 | `audit_log` |
 | V7 | `roles` (RBAC) |
 | V8+ | Reversal fields, optimistic locking (`version`) on transactions |
+| V10 | `fraud_alerts` for flagged / blocked activity |
 
 **Ledger invariant:** every `journal_entry` has lines whose debits and credits sum to the same amount; `LedgerService` rejects unbalanced posts.
 
@@ -145,6 +147,7 @@ Base path: `/api/v1`. Protected routes require `Authorization: Bearer <access_to
 | **Users** | `GET/PUT /users/me`, `POST /users/me/transaction-pin` |
 | **Wallets** | `POST /wallets`, `GET /wallets`, `GET /wallets/{id}`, `GET /wallets/{id}/balance` |
 | **Transactions** | `POST /transactions/transfer`, `/fund`, `/withdraw`; `GET /transactions/{reference}`, `/wallet/{walletId}` |
+| **Fraud (admin)** | `GET /fraud/alerts`, `PATCH /fraud/alerts/{id}` — requires `ROLE_ADMIN` |
 | **Paystack** | `POST /paystack/webhook` (unsigned from Paystack; signature header required) |
 
 Interactive docs when running: [Swagger UI](http://localhost:8080/swagger-ui.html) · [OpenAPI JSON](http://localhost:8080/api-docs).
@@ -200,6 +203,7 @@ Use **exact origins** (scheme + host + port), not `*` when `allow-credentials` i
 | **Pessimistic locks** | Wallet/ledger accounts locked during balance-changing operations. |
 | **Per-wallet transaction lock** | Prevents overlapping withdraw/transfer on the same wallet. |
 | **Transfer throttle (Redis)** | Blocks identical amount + recipient retries within 30 seconds. |
+| **Fraud detection** | Configurable limits on amount, daily volume, and velocity; soft flags for new recipients and large withdrawals. |
 | **Paystack resilience** | Timeouts, retries, circuit breaker on outbound HTTP (`ResilienceConfig`). |
 | **Webhook verification** | HMAC signature check before any state change; funding/withdrawal handlers are idempotent by reference. |
 | **Withdrawal retries** | Async listener re-attempts failed Paystack transfers; auto-reversal after max attempts. |
@@ -226,6 +230,7 @@ src/main/java/com/vaultpay/
 ├── ledger/         # Double-entry accounting core
 ├── transaction/    # Transfers, deposits, withdrawals, refunds, listeners
 ├── paystack/       # Gateway client + webhook entrypoint
+├── fraud/          # Rule engine, alerts, admin review API
 └── common/         # Config, exceptions, events, utilities, audit
 
 src/main/resources/
@@ -282,6 +287,8 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 | `PAYSTACK_SECRET_KEY` | Paystack API + webhook HMAC verification |
 | `REDIS_HOST`, `REDIS_PORT` | Redis (set in Compose / `application.yml` for dev) |
 | `SERVER_PORT`, `SPRING_PROFILES_ACTIVE` | Server binding and profile |
+
+Fraud limits are configured under `app.fraud` in `application.yml` (amount caps, velocity windows, review thresholds). Set `app.fraud.enabled: false` to disable checks in a local environment.
 
 ---
 
